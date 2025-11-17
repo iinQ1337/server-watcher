@@ -1,0 +1,3 @@
+[submodule "admin-dashboard"]
+	path = admin-dashboard
+	url = https://github.com/iinQ1337/admin-dashboard.git
