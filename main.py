@@ -1,0 +1,494 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+@file main.py
+@brief Главный модуль системы мониторинга веб-сайтов и API
+@details Запускает периодические проверки API, серверов, сетевых сервисов и др.
+         Сохраняет результаты и может уведомлять через Telegram/Discord.
+@author Monitoring Module
+@date 2025-11-10
+"""
+
+import asyncio
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+
+from utils.config_loader import load_config
+from utils.logger import setup_logger, log_info, log_error
+from utils.file_writer import (
+    write_json_report,
+    write_text_report,
+    write_site_reports,
+)
+from utils.notifier import send_notification
+
+from checker.api_checker import check_api_endpoints
+from checker.page_checker import check_web_pages
+from checker.server_checker import check_server_status
+from checker.version_checker import check_versions
+from checker.log_checker import check_logs
+from checker.dns_checker import check_dns
+from checker.net_checker import check_network
+from checker.sensitive_paths_checker import check_sensitive_paths
+from monitoring import TaskManagerStream, DatabaseStream, DockerStream, QueueStream
+
+console = Console()
+
+
+async def run_all_checks(config: dict) -> dict:
+    """
+    @brief Выполняет все проверки мониторинга
+    @param config Словарь с конфигурацией
+    @return Словарь с результатами всех проверок
+    """
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "checks": {},
+    }
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+
+        # === API Monitoring ===
+        if config.get("api_monitoring", {}).get("enabled", False):
+            task = progress.add_task("[cyan]Проверка API endpoints...", total=None)
+            try:
+                api_cfg = config.get("api_monitoring", {})
+                # чтобы внутренняя логика знала глобальные параметры polling
+                api_cfg["__root__"] = config
+                results["checks"]["api"] = await check_api_endpoints(api_cfg)
+                log_info("API проверки завершены")
+            except Exception as e:
+                log_error(f"Ошибка при проверке API: {e}")
+                results["checks"]["api"] = {"error": str(e)}
+            progress.remove_task(task)
+
+        # === Web Pages ===
+        if config.get("page_monitoring", {}).get("enabled", False):
+            task = progress.add_task("[cyan]Проверка веб-страниц...", total=None)
+            try:
+                results["checks"]["pages"] = await check_web_pages(
+                    config.get("page_monitoring", {})
+                )
+                log_info("Проверка страниц завершена")
+            except Exception as e:
+                log_error(f"Ошибка при проверке страниц: {e}")
+                results["checks"]["pages"] = {"error": str(e)}
+            progress.remove_task(task)
+
+        # === Server ===
+        if config.get("server_monitoring", {}).get("enabled", False):
+            task = progress.add_task("[cyan]Проверка состояния сервера...", total=None)
+            try:
+                results["checks"]["server"] = await check_server_status(
+                    config.get("server_monitoring", {})
+                )
+                log_info("Проверка сервера завершена")
+            except Exception as e:
+                log_error(f"Ошибка при проверке сервера: {e}")
+                results["checks"]["server"] = {"error": str(e)}
+            progress.remove_task(task)
+
+        # === Versions ===
+        if config.get("version_monitoring", {}).get("enabled", False):
+            task = progress.add_task("[cyan]Проверка версий библиотек...", total=None)
+            try:
+                results["checks"]["versions"] = await check_versions(
+                    config.get("version_monitoring", {})
+                )
+                log_info("Проверка версий завершена")
+            except Exception as e:
+                log_error(f"Ошибка при проверке версий: {e}")
+                results["checks"]["versions"] = {"error": str(e)}
+            progress.remove_task(task)
+
+        # === Logs ===
+        if config.get("log_monitoring", {}).get("enabled", False):
+            task = progress.add_task("[cyan]Анализ логов...", total=None)
+            try:
+                results["checks"]["logs"] = await check_logs(
+                    config.get("log_monitoring", {})
+                )
+                log_info("Анализ логов завершен")
+            except Exception as e:
+                log_error(f"Ошибка анализа логов: {e}")
+                results["checks"]["logs"] = {"error": str(e)}
+            progress.remove_task(task)
+
+        # === DNS ===
+        if config.get("dns_monitoring", {}).get("enabled", False):
+            task = progress.add_task("[cyan]Проверка DNS и WHOIS...", total=None)
+            try:
+                results["checks"]["dns"] = await check_dns(
+                    config.get("dns_monitoring", {})
+                )
+                log_info("DNS проверки завершены")
+            except Exception as e:
+                log_error(f"Ошибка DNS проверки: {e}")
+                results["checks"]["dns"] = {"error": str(e)}
+            progress.remove_task(task)
+
+        # === Network ===
+        if config.get("network_monitoring", {}).get("enabled", False):
+            task = progress.add_task(
+                "[cyan]Сетевые проверки (порты/TCP/SMTP/TLS)...", total=None
+            )
+            try:
+                results["checks"]["network"] = await check_network(
+                    config.get("network_monitoring", {})
+                )
+                log_info("Сетевые проверки завершены")
+            except Exception as e:
+                log_error(f"Ошибка сетевых проверок: {e}")
+                results["checks"]["network"] = {"error": str(e)}
+            progress.remove_task(task)
+
+        # === Sensitive Paths ===
+        if config.get("sensitive_paths_monitoring", {}).get("enabled", False):
+            task = progress.add_task(
+                "[cyan]Проверка чувствительных директорий...", total=None
+            )
+            try:
+                results["checks"]["sensitive_paths"] = await check_sensitive_paths(
+                    config.get("sensitive_paths_monitoring", {})
+                )
+                log_info("Проверка чувствительных директорий завершена")
+            except Exception as e:
+                log_error(f"Ошибка проверки чувствительных директорий: {e}")
+                results["checks"]["sensitive_paths"] = {"error": str(e)}
+            progress.remove_task(task)
+
+    return results
+
+
+async def save_reports(config: dict, results: dict):
+    """
+    Сохраняет JSON и текстовые отчеты
+    """
+    output_dir = Path(config.get("output", {}).get("directory", "output"))
+    output_dir.mkdir(exist_ok=True)
+    date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    json_enabled = config.get("output", {}).get("json_format", True)
+    text_enabled = config.get("output", {}).get("text_format", False)
+
+    try:
+        if config.get("output", {}).get("json_format", True):
+            json_path = output_dir / f"report_{date_str}.json"
+            write_json_report(results, json_path)
+            console.print(f"[green]✓[/green] JSON отчет сохранен: {json_path}")
+
+        if config.get("output", {}).get("text_format", False):
+            txt_path = output_dir / f"report_{date_str}.txt"
+            write_text_report(results, txt_path)
+            console.print(f"[green]✓[/green] Текстовый отчет сохранен: {txt_path}")
+
+        site_reports = write_site_reports(
+            results,
+            output_dir,
+            date_str,
+            write_json=json_enabled,
+            write_text=text_enabled,
+        )
+        if site_reports:
+            folders = ", ".join(sorted({site for site, _ in site_reports}))
+            console.print(
+                f"[green]✓[/green] Созданы per-site отчеты для: {folders}"
+            )
+
+        log_info("Отчеты успешно сохранены")
+    except Exception as e:
+        log_error(f"Ошибка сохранения отчетов: {e}")
+        console.print(f"[bold red]Ошибка сохранения:[/bold red] {e}")
+
+
+async def monitoring_loop(config: dict):
+    """
+    Бесконечный цикл мониторинга согласно polling.interval_sec
+    """
+    polling_cfg = config.get("polling", {}) or {}
+    interval = int(polling_cfg.get("interval_sec", 60))
+    offline_attempts = int(polling_cfg.get("offline_attempts", 3))
+
+    console.print(
+        f"[bold cyan]Мониторинг запущен с интервалом {interval} сек.[/bold cyan]\n"
+    )
+
+    fail_counter = 0
+    iteration = 0
+
+    while True:
+        iteration += 1
+        console.print(
+            f"\n[white]=== Итерация #{iteration} — {datetime.now().isoformat()} ===[/white]"
+        )
+
+        # Конфиг для нотификаций берём каждый цикл (на случай hot-reload через файл)
+        notifications_cfg = config.get("notifications", {}) or {}
+        alerts_cfg = config.get("alerts", {}) or {}
+        common_tags = (notifications_cfg.get("common", {}) or {}).get("tags", []) or []
+
+        try:
+            results = await run_all_checks(config)
+            await save_reports(config, results)
+
+            # === УВЕДОМЛЕНИЯ ПО РЕЗУЛЬТАТАМ ===
+
+            # ---- 1) API FAILURES ----
+            if alerts_cfg.get("notify_api_failures", True):
+                api_result = results.get("checks", {}).get("api", {}) or {}
+                failed_total = int(api_result.get("failed", 0) or 0)
+                if failed_total > 0:
+                    failed_items = [
+                        r
+                        for r in api_result.get("results", []) or []
+                        if not r.get("success")
+                    ][:5]
+
+                    lines = [
+                        f"Failed {failed_total} of {api_result.get('total', 0)} API endpoints"
+                    ]
+                    for r in failed_items:
+                        url = r.get("url", "-")
+                        status = r.get("status")
+                        err = r.get("error")
+                        rt = r.get("response_time")
+                        pieces = []
+                        if status is not None:
+                            pieces.append(f"status={status}")
+                        if rt is not None:
+                            pieces.append(f"{rt} ms")
+                        if err:
+                            pieces.append(err)
+                        line = (
+                            f"- {url} :: " + ", ".join(pieces)
+                            if pieces
+                            else f"- {url}"
+                        )
+                        lines.append(line)
+
+                    details = "\n".join(lines)
+                    # host = первый URL, который реально упал
+                    host_url = (
+                        failed_items[0].get("url")
+                        if failed_items and failed_items[0].get("url")
+                        else "api://summary"
+                    )
+
+                    await send_notification(
+                        notifications_cfg,
+                        event_type="api_failures",
+                        host=host_url,
+                        details=details,
+                        tags=common_tags + ["api"],
+                    )
+
+            # ---- 2) TLS CERTIFICATE EXPIRY ----
+            if alerts_cfg.get("tls_expiry_days") is not None:
+                warn_days = int(alerts_cfg.get("tls_expiry_days", 30))
+                net = results.get("checks", {}).get("network", {}) or {}
+                certs_section = net.get("certificates", {}) or {}
+                certs = certs_section.get("results", []) or []
+
+                for c in certs:
+                    host = c.get("host")
+                    port = c.get("port", 443)
+                    err = c.get("error")
+                    days = c.get("days_remaining")
+                    expired = c.get("expired", False)
+
+                    if host:
+                        if port == 443:
+                            host_url = f"https://{host}"
+                        else:
+                            host_url = f"{host}:{port}"
+                    else:
+                        host_url = "-"
+
+                    if err:
+                        details = f"TLS check error: {err}"
+                        await send_notification(
+                            notifications_cfg,
+                            event_type="tls_expiry",
+                            host=host_url,
+                            details=details,
+                            tags=common_tags + ["tls"],
+                        )
+                        continue
+
+                    if expired:
+                        details = f"Certificate EXPIRED (days_remaining={days})"
+                        await send_notification(
+                            notifications_cfg,
+                            event_type="tls_expiry",
+                            host=host_url,
+                            details=details,
+                            tags=common_tags + ["tls"],
+                        )
+                    elif isinstance(days, (int, float)) and days <= warn_days:
+                        details = (
+                            f"Certificate expires in {int(days)} days "
+                            f"(threshold {warn_days})"
+                        )
+                        await send_notification(
+                            notifications_cfg,
+                            event_type="tls_expiry",
+                            host=host_url,
+                            details=details,
+                            tags=common_tags + ["tls"],
+                        )
+
+            # ---- 3) SENSITIVE PATHS EXPOSURE ----
+            if alerts_cfg.get("notify_sensitive_exposure", True):
+                sp = results.get("checks", {}).get("sensitive_paths", {}) or {}
+                exposures = []
+                for item in sp.get("results", []) or []:
+                    exposed = item.get("exposed")
+                    status = item.get("status")
+                    url = item.get("url") or item.get("full_url") or "-"
+                    path = item.get("path") or item.get("resource") or "-"
+
+                    if exposed is True:
+                        exposures.append((url, status, path))
+                    elif exposed is None:
+                        # fallback: считаем экспозицией некоторые "подозрительные" статусы
+                        if status in (200, 206, 301, 302, 401, 403):
+                            exposures.append((url, status, path))
+
+                if exposures:
+                    lines = [
+                        f"Found {len(exposures)} exposed sensitive paths:",
+                    ]
+                    for (url, status, path) in exposures[:10]:
+                        lines.append(f"- {url}  [{status}]  ({path})")
+                    if len(exposures) > 10:
+                        lines.append(f"... and {len(exposures) - 10} more")
+
+                    details = "\n".join(lines)
+                    host_url = exposures[0][0] if exposures[0] else "-"
+
+                    await send_notification(
+                        notifications_cfg,
+                        event_type="sensitive_exposed",
+                        host=host_url,
+                        details=details,
+                        tags=common_tags + ["security", "sensitive"],
+                    )
+
+            # ---- 4) SERVER LOAD ALERTS (CPU/MEM/DISK) ----
+            if alerts_cfg.get("notify_server_load", True):
+                srv = results.get("checks", {}).get("server", {}) or {}
+                host_label = (
+                    srv.get("hostname") or srv.get("platform") or "server"
+                )
+
+                msgs = []
+                cpu = srv.get("cpu") or {}
+                mem = srv.get("memory") or {}
+                disks = srv.get("disk") or {}
+
+                cpu_thr = cpu.get("threshold")
+                cpu_pct = cpu.get("percent")
+                if isinstance(cpu_pct, (int, float)) and isinstance(
+                    cpu_thr, (int, float)
+                ) and cpu_pct >= cpu_thr:
+                    msgs.append(f"CPU {cpu_pct}% (threshold {cpu_thr}%)")
+
+                mem_thr = mem.get("threshold")
+                mem_pct = mem.get("percent")
+                if isinstance(mem_pct, (int, float)) and isinstance(
+                    mem_thr, (int, float)
+                ) and mem_pct >= mem_thr:
+                    msgs.append(f"Memory {mem_pct}% (threshold {mem_thr}%)")
+
+                if isinstance(disks, dict):
+                    for mount, info in disks.items():
+                        if not isinstance(info, dict):
+                            continue
+                        thr = info.get("threshold")
+                        pct = info.get("percent")
+                        if isinstance(pct, (int, float)) and isinstance(
+                            thr, (int, float)
+                        ) and pct >= thr:
+                            msgs.append(
+                                f"Disk {mount}: {pct}% (threshold {thr}%)"
+                            )
+
+                if msgs:
+                    details = " / ".join(msgs)
+                    await send_notification(
+                        notifications_cfg,
+                        event_type="server_alerts",
+                        host=str(host_label),
+                        details=details,
+                        tags=common_tags + ["server"],
+                    )
+
+            fail_counter = 0  # сброс, если цикл прошел без критической ошибки
+
+        except Exception as e:
+            fail_counter += 1
+            log_error(f"Ошибка цикла мониторинга: {e}")
+            if fail_counter >= offline_attempts:
+                # при падении самого мониторинга
+                await send_notification(
+                    notifications_cfg,
+                    message=f"⚠️ Мониторинг упал {fail_counter} раз подряд",
+                    event_type="system_error",
+                    host="monitor",
+                    details=str(e),
+                    tags=common_tags + ["system"],
+                )
+                fail_counter = 0  # чтобы не заспамить
+
+        await asyncio.sleep(interval)
+
+
+async def main():
+    console.print("[bold green]Запуск модуля мониторинга[/bold green]\n")
+
+    config: dict
+    try:
+        config = load_config()
+        setup_logger(config.get("logging", {}))
+        log_info("Конфигурация успешно загружена")
+    except Exception as e:
+        console.print(
+            f"[bold red]Ошибка загрузки конфигурации:[/bold red] {e}"
+        )
+        return 1
+
+    task_stream: Optional[TaskManagerStream] = TaskManagerStream.from_config(config)
+    db_stream: Optional[DatabaseStream] = DatabaseStream.from_config(config)
+    queue_stream: Optional[QueueStream] = QueueStream.from_config(config)
+    docker_stream: Optional[DockerStream] = DockerStream.from_config(config)
+
+    active_streams = [s for s in (task_stream, db_stream, queue_stream, docker_stream) if s]
+    for stream in active_streams:
+        stream.start()
+
+    try:
+        await monitoring_loop(config)
+    finally:
+        for stream in active_streams:
+            try:
+                stream.stop()
+            except Exception:
+                pass
+        for stream in active_streams:
+            stream.join(timeout=5)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))

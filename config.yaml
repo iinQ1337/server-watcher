@@ -1,0 +1,360 @@
+# === Logging & Output Configuration ===
+logging:
+  level: DEBUG
+  file: monitoring.log
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+  console: true
+  max_bytes: 5242880 # 5 MB
+  backup_count: 3
+
+output:
+  directory: output
+  json_format: true
+  text_format: false
+
+dashboard:
+  docker_stream:
+    enabled: true
+    interval_sec: 20
+    use_cli: true
+    default_node: null
+
+  databases_stream:
+    enabled: true
+    interval_sec: 60
+    alerts_enabled: true
+    backups_enabled: true
+    backup_autosave_enabled: true
+    backup_directory: output/db_backups
+    backup_retention: 20
+    backup_timeout_sec: 120
+    thresholds:
+      replication_lag_ms: 250
+      storage_percent: 85
+    instances:
+      - type: mysql
+        id: local-mysql
+        name: Local MySQL
+        host: localhost
+        port: 3306
+        user: monitor
+        password: monitor
+        database: monitor
+    alerts: []          # можно добавить объекты алертов
+    backups: []         # можно добавить расписания/статусы, если нужно
+
+  site_history:
+    files_per_site: 7
+  themes: []
+  active_theme_id: null
+
+
+# === API Endpoints Monitoring ===
+api_monitoring:
+  enabled: true
+  endpoints:
+    # --- GitHub API root (GET) ---
+    - url: "https://api.github.com"
+      method: GET
+      expected_status: 200
+      validate_json: true
+      json_schema:
+        required_keys: [ "current_user_url", "repository_url" ]
+      preview_chars: 1500
+      log_full_response: true
+      save_response_to: "output/github_api_response.json"
+
+    # --- httpbin GET ---
+    - url: "https://httpbin.org/get"
+      method: GET
+      expected_status: 200
+      validate_json: true
+      json_schema:
+        required_keys: [ "url" ]
+      preview_chars: 1000
+
+    # --- POST пример ---
+    - url: "https://httpbin.org/post"
+      method: POST
+      expected_status: 200
+      body:
+        name: "John"
+        email: "john@example.com"
+      validate_json: true
+      json_schema:
+        required_keys: [ "json" ]
+
+    # --- POST пример ---
+    - url: "https://github.com/post"
+      method: POST
+      expected_status: 200
+      body:
+        name: "John"
+        email: "john@example.com"
+      validate_json: true
+      json_schema:
+        required_keys: [ "json" ]
+
+    # --- DELETE пример ---
+    - url: "https://httpbin.org/delete"
+      method: DELETE
+      expected_status: 200
+      validate_json: true
+      json_schema:
+        required_keys: [ "url" ]
+
+    # --- HEAD запрос ---
+    - url: "https://httpbin.org/get"
+      method: HEAD
+      expected_status: 200
+
+    # --- Bearer token пример ---
+    - url: "https://httpbin.org/bearer"
+      method: GET
+      bearer_token: "my-test-token-123"
+      expected_status: 200
+      validate_json: true
+      json_schema:
+        required_keys: [ "authenticated", "token" ]
+
+# === Web Pages Monitoring (React / Next.js / Express health checks) ===
+page_monitoring:
+  enabled: true
+  pages:
+    - url: "https://www.wikipedia.org/"
+      must_contain: "The Free Encyclopedia"
+      slow_ms_threshold: 1200
+
+    - url: "https://www.python.org/"
+      must_contain: "Python"
+      slow_ms_threshold: 1500
+      check_compression: true
+
+    - url: "http://example.com/"
+      must_contain: "Example Domain"
+      must_not_contain: "Error"
+      slow_ms_threshold: 1500
+      # this will test HTTP→HTTPS redirect and cache headers
+
+    - url: "https://www.cloudflare.com/"
+      must_contain: "Cloudflare"
+      slow_ms_threshold: 2000
+      check_cors: true
+
+# === Server Resource Monitoring ===
+server_monitoring:
+  enabled: true
+  check_cpu: true
+  check_memory: true
+  check_disk: true
+  check_uptime: true
+  check_network: true
+  thresholds:
+    cpu_percent: 70
+    memory_percent: 60
+    disk_percent: 80
+  paths:
+    - "/"
+
+# === Security & Vulnerability Monitoring ===
+security_monitoring:
+  enabled: true
+  check_ssl: true
+  check_headers: true
+  check_exposed_files: true
+  check_cors: true
+  check_csp: true
+  urls:
+    - "https://www.cloudflare.com/"
+    - "https://www.python.org/"
+    - "https://openai.com/"
+    - "https://example.com/"
+  exposed_paths:
+    - ".env"
+    - ".git/config"
+    - "config.php"
+    - "phpinfo.php"
+    - "backup.sql"
+
+# === Dependency Version Monitoring (Python + Node) ===
+version_monitoring:
+  enabled: true
+  check_pypi: true
+  exclude_packages:
+    - pip
+    - setuptools
+    - wheel
+  node:
+    enabled: true
+    # replace with actual project paths on your system
+    paths:
+      - "/Users/pc/Desktop/service/admin-dashboard/node_modules"
+    exclude_packages:
+      - "@types/node"
+      - "eslint"
+
+# === Log File Analysis ===
+log_monitoring:
+  enabled: true
+  log_files:
+    - "/var/log/syslog"
+    - "/var/log/dpkg.log"
+  max_lines_per_file: 500
+
+# === DNS & WHOIS Checks ===
+dns_monitoring:
+  enabled: true
+  check_whois: true
+  record_types: [ "A", "MX", "TXT" ]
+  domains:
+    - "google.com"
+    - "wikipedia.org"
+    - "openai.com"
+    - "cloudflare.com"
+
+# === Optional Message Queues Monitoring ===
+queue_monitoring:
+  enabled: true
+  interval_sec: 60
+  queues:
+    - type: redis
+      host: "localhost"
+      port: 6379
+      db: 0
+      queue_name: "test_queue"
+
+    - type: rabbitmq
+      host: "localhost"
+      port: 5672
+      user: "guest"
+      password: "guest"
+      queues:
+        - "test_queue"
+
+# === Network / Ports / SMTP / TLS / TCP ===
+network_monitoring:
+  enabled: true
+
+  ports:
+    - host: "example.com"
+      ports: [ 80, 443, 22 ]
+      timeout_ms: 1500
+    - host: "1.1.1.1"
+      ports: [ 53 ]
+      timeout_ms: 1000
+
+  tcp_checks:
+    - host: "example.com"
+      port: 443
+      use_tls: true
+      send: "HEAD / HTTP/1.1\r
+
+        Host: example.com\r
+
+        Connection: close\r
+
+        \r\n"
+      expect_contains: "HTTP/1."
+      timeout_ms: 3000
+    - host: "example.com"
+      port: 80
+      use_tls: false
+      send: "GET / HTTP/1.0\r
+
+        Host: example.com\r
+
+        \r\n"
+      expect_contains: "HTTP/1."
+      timeout_ms: 3000
+
+  smtp:
+    - host: "smtp.example.com"
+      port: 587
+      starttls: true
+      username: ""
+      password: ""
+      timeout_ms: 5000
+    - host: "mail.example.com"
+      port: 465
+      tls: true
+      timeout_ms: 5000
+
+  certificates:
+    - host: "google.com"
+      port: 443
+      timeout_ms: 3000
+    - host: "api.example.com"
+      port: 443
+      timeout_ms: 3000
+
+  warn_days: 30
+
+sensitive_paths_monitoring:
+  enabled: true
+  base_urls:
+    - "https://example.com"
+    - "https://httpbin.org"
+    - "https://www.cloudflare.com"
+  extra_paths:
+    - ".env"
+    - ".git/"
+    - "robots.txt"
+    - "status"
+    - "config.json"
+  timeout: 5
+  concurrency: 10
+  treat_403_as_exposed: true
+  treat_401_as_exposed: false
+
+# === Notifications & Integrations ===
+notifications:
+  enabled: true
+  telegram:
+    enabled: true
+    bot_token: ""
+    chat_id: ""
+    parse_mode: Markdown
+    notify_on:
+      - tls_expiry
+      - sensitive_exposed
+      - api_failures
+      - server_alerts
+    message_template: |
+      🚨 *{{event_type}}* detected
+      Host: `{{host}}`
+      Details: {{details}}
+      Time: {{timestamp}}
+    extra_instructions: https://github.com/iinQ1337
+  discord:
+    enabled: false
+    webhook_url: ""
+    username: Monitoring Bot
+    avatar_url: ""
+    notify_on:
+      - tls_expiry
+      - sensitive_exposed
+    message_template: |
+      **{{event_type}}**
+      **Host:** {{host}}
+      **Details:** {{details}}
+      *(at {{timestamp}})*
+  common:
+    retry_attempts: 3
+    timeout_sec: 7
+    mute_when_recovering: true
+    include_tags: true
+    tags:
+      - api
+
+# === Polling & Scheduling ===
+polling:
+  interval_sec: 300
+  offline_attempts: 3
+  request_timeout_sec: 5
+
+# === Event Notification Preferences ===
+alerts:
+  tls_expiry_days: 30
+  notify_sensitive_exposure: true
+  notify_api_failures: true
+  notify_server_load: true

@@ -1,0 +1,6 @@
+admin-dashboard/
+.DS_Store
+__pycache__/
+output/
+Doxyfile
+monitoring.log
