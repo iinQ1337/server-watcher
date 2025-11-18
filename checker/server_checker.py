@@ -20,6 +20,7 @@ try:
 except ImportError:  # type: ignore
     psutil = None  # type: ignore
 
+from utils.logger import log_error, log_info, log_warning
 
 def _get_uptime() -> Optional[float]:
     """
@@ -53,9 +54,12 @@ async def check_server_status(config: Dict[str, Any]) -> Dict[str, Any]:
         "error": None,
     }
 
+    log_info("[Server] Старт проверки состояния сервера")
+
     if psutil is None:
         result["error"] = "psutil not installed. Install with: pip install psutil"
         result["overall_status"] = "error"
+        log_error("[Server] psutil is not installed")
         return result
 
     thresholds = config.get("thresholds", {})
@@ -163,6 +167,7 @@ async def check_server_status(config: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         result["error"] = f"Server check failed: {e}"
         result["overall_status"] = "error"
+        log_error("[Server] Ошибка проверки сервера", exc=e)
         return result
 
     if overall_level == 0:
@@ -171,5 +176,13 @@ async def check_server_status(config: Dict[str, Any]) -> Dict[str, Any]:
         result["overall_status"] = "warning"
     else:
         result["overall_status"] = "critical"
+
+    log_info(
+        f"[Server] Завершено: status={result['overall_status']}, "
+        f"cpu={result.get('cpu', {}).get('percent')}, "
+        f"mem={result.get('memory', {}).get('percent')}"
+    )
+    if result["overall_status"] != "ok":
+        log_warning(f"[Server] Обнаружены проблемы: {result['overall_status']}")
 
     return result

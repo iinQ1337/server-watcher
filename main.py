@@ -20,7 +20,13 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from utils.config_loader import load_config
-from utils.logger import setup_logger, log_info, log_error
+from utils.logger import (
+    install_global_exception_hooks,
+    log_debug,
+    log_error,
+    log_info,
+    setup_logger,
+)
 from utils.file_writer import (
     write_json_report,
     write_text_report,
@@ -36,7 +42,13 @@ from checker.log_checker import check_logs
 from checker.dns_checker import check_dns
 from checker.net_checker import check_network
 from checker.sensitive_paths_checker import check_sensitive_paths
-from monitoring import TaskManagerStream, DatabaseStream, DockerStream, QueueStream
+from monitoring import (
+    TaskManagerStream,
+    DatabaseStream,
+    DockerStream,
+    QueueStream,
+    ProcessSupervisor,
+)
 
 console = Console()
 
@@ -51,6 +63,21 @@ async def run_all_checks(config: dict) -> dict:
         "timestamp": datetime.now().isoformat(),
         "checks": {},
     }
+    enabled_sections = [
+        name
+        for name, section in (
+            ("api", config.get("api_monitoring", {})),
+            ("pages", config.get("page_monitoring", {})),
+            ("server", config.get("server_monitoring", {})),
+            ("versions", config.get("version_monitoring", {})),
+            ("logs", config.get("log_monitoring", {})),
+            ("dns", config.get("dns_monitoring", {})),
+            ("network", config.get("network_monitoring", {})),
+            ("sensitive_paths", config.get("sensitive_paths_monitoring", {})),
+        )
+        if section.get("enabled", False)
+    ]
+    log_info(f"Запуск набора проверок: {', '.join(enabled_sections) or 'ничего не включено'}")
 
     with Progress(
         SpinnerColumn(),
@@ -65,10 +92,18 @@ async def run_all_checks(config: dict) -> dict:
                 api_cfg = config.get("api_monitoring", {})
                 # чтобы внутренняя логика знала глобальные параметры polling
                 api_cfg["__root__"] = config
+                log_info(
+                    f"Запуск проверки API ({len(api_cfg.get('endpoints', []))} endpoints)"
+                )
                 results["checks"]["api"] = await check_api_endpoints(api_cfg)
-                log_info("API проверки завершены")
+                stats = results["checks"]["api"]
+                log_info(
+                    "API проверки завершены: "
+                    f"total={stats.get('total')}, ok={stats.get('successful')}, "
+                    f"failed={stats.get('failed')}"
+                )
             except Exception as e:
-                log_error(f"Ошибка при проверке API: {e}")
+                log_error("Ошибка при проверке API", exc=e)
                 results["checks"]["api"] = {"error": str(e)}
             progress.remove_task(task)
 
@@ -76,12 +111,21 @@ async def run_all_checks(config: dict) -> dict:
         if config.get("page_monitoring", {}).get("enabled", False):
             task = progress.add_task("[cyan]Проверка веб-страниц...", total=None)
             try:
-                results["checks"]["pages"] = await check_web_pages(
-                    config.get("page_monitoring", {})
+                pages_cfg = config.get("page_monitoring", {})
+                log_info(
+                    f"Запуск проверки страниц ({len(pages_cfg.get('pages', []))} шт.)"
                 )
-                log_info("Проверка страниц завершена")
+                results["checks"]["pages"] = await check_web_pages(
+                    pages_cfg
+                )
+                stats = results["checks"]["pages"]
+                log_info(
+                    "Проверка страниц завершена: "
+                    f"total={stats.get('total')}, ok={stats.get('successful')}, "
+                    f"failed={stats.get('failed')}, avg={stats.get('avg_response_time')} ms"
+                )
             except Exception as e:
-                log_error(f"Ошибка при проверке страниц: {e}")
+                log_error("Ошибка при проверке страниц", exc=e)
                 results["checks"]["pages"] = {"error": str(e)}
             progress.remove_task(task)
 
@@ -89,12 +133,19 @@ async def run_all_checks(config: dict) -> dict:
         if config.get("server_monitoring", {}).get("enabled", False):
             task = progress.add_task("[cyan]Проверка состояния сервера...", total=None)
             try:
+                log_info("Запуск проверки состояния сервера")
                 results["checks"]["server"] = await check_server_status(
                     config.get("server_monitoring", {})
                 )
-                log_info("Проверка сервера завершена")
+                stats = results["checks"]["server"]
+                log_info(
+                    "Проверка сервера завершена: "
+                    f"status={stats.get('overall_status')}, "
+                    f"cpu={stats.get('cpu', {}).get('percent')}, "
+                    f"mem={stats.get('memory', {}).get('percent')}"
+                )
             except Exception as e:
-                log_error(f"Ошибка при проверке сервера: {e}")
+                log_error("Ошибка при проверке сервера", exc=e)
                 results["checks"]["server"] = {"error": str(e)}
             progress.remove_task(task)
 
@@ -102,12 +153,20 @@ async def run_all_checks(config: dict) -> dict:
         if config.get("version_monitoring", {}).get("enabled", False):
             task = progress.add_task("[cyan]Проверка версий библиотек...", total=None)
             try:
+                log_info("Запуск проверки версий пакетов")
                 results["checks"]["versions"] = await check_versions(
                     config.get("version_monitoring", {})
                 )
-                log_info("Проверка версий завершена")
+                stats = results["checks"]["versions"]
+                log_info(
+                    "Проверка версий завершена: "
+                    f"total={stats.get('total_packages')}, "
+                    f"updates={stats.get('updates_available')}, "
+                    f"major={stats.get('major_updates_available')}, "
+                    f"failed={stats.get('check_failed')}"
+                )
             except Exception as e:
-                log_error(f"Ошибка при проверке версий: {e}")
+                log_error("Ошибка при проверке версий", exc=e)
                 results["checks"]["versions"] = {"error": str(e)}
             progress.remove_task(task)
 
@@ -115,12 +174,20 @@ async def run_all_checks(config: dict) -> dict:
         if config.get("log_monitoring", {}).get("enabled", False):
             task = progress.add_task("[cyan]Анализ логов...", total=None)
             try:
+                log_info(
+                    f"Анализируем логи ({len(config.get('log_monitoring', {}).get('log_files', []))} файлов)"
+                )
                 results["checks"]["logs"] = await check_logs(
                     config.get("log_monitoring", {})
                 )
-                log_info("Анализ логов завершен")
+                stats = results["checks"]["logs"]
+                log_info(
+                    "Анализ логов завершен: "
+                    f"processed={stats.get('processed_files')}, "
+                    f"failed={stats.get('failed_files')}"
+                )
             except Exception as e:
-                log_error(f"Ошибка анализа логов: {e}")
+                log_error("Ошибка анализа логов", exc=e)
                 results["checks"]["logs"] = {"error": str(e)}
             progress.remove_task(task)
 
@@ -128,12 +195,18 @@ async def run_all_checks(config: dict) -> dict:
         if config.get("dns_monitoring", {}).get("enabled", False):
             task = progress.add_task("[cyan]Проверка DNS и WHOIS...", total=None)
             try:
+                domains = config.get("dns_monitoring", {}).get("domains", [])
+                log_info(f"Запуск проверки DNS/WHOIS ({len(domains)} доменов)")
                 results["checks"]["dns"] = await check_dns(
                     config.get("dns_monitoring", {})
                 )
-                log_info("DNS проверки завершены")
+                stats = results["checks"]["dns"]
+                log_info(
+                    "DNS проверки завершены: "
+                    f"total={stats.get('total_domains')}, errors={stats.get('errors')}"
+                )
             except Exception as e:
-                log_error(f"Ошибка DNS проверки: {e}")
+                log_error("Ошибка DNS проверки", exc=e)
                 results["checks"]["dns"] = {"error": str(e)}
             progress.remove_task(task)
 
@@ -143,12 +216,27 @@ async def run_all_checks(config: dict) -> dict:
                 "[cyan]Сетевые проверки (порты/TCP/SMTP/TLS)...", total=None
             )
             try:
-                results["checks"]["network"] = await check_network(
-                    config.get("network_monitoring", {})
+                net_cfg = config.get("network_monitoring", {}) or {}
+                log_info(
+                    "Запуск сетевых проверок: "
+                    f"ports={len(net_cfg.get('ports', []))}, "
+                    f"tcp={len(net_cfg.get('tcp_checks', []))}, "
+                    f"smtp={len(net_cfg.get('smtp', []))}, "
+                    f"certs={len(net_cfg.get('certificates', []))}"
                 )
-                log_info("Сетевые проверки завершены")
+                results["checks"]["network"] = await check_network(
+                    net_cfg
+                )
+                stats = results["checks"]["network"]
+                log_info(
+                    "Сетевые проверки завершены: "
+                    f"status={stats.get('overall_status')}, "
+                    f"ports_open={stats.get('ports', {}).get('open')}, "
+                    f"tcp_failed={stats.get('tcp', {}).get('failed')}, "
+                    f"smtp_failed={stats.get('smtp', {}).get('failed')}"
+                )
             except Exception as e:
-                log_error(f"Ошибка сетевых проверок: {e}")
+                log_error("Ошибка сетевых проверок", exc=e)
                 results["checks"]["network"] = {"error": str(e)}
             progress.remove_task(task)
 
@@ -158,12 +246,21 @@ async def run_all_checks(config: dict) -> dict:
                 "[cyan]Проверка чувствительных директорий...", total=None
             )
             try:
-                results["checks"]["sensitive_paths"] = await check_sensitive_paths(
-                    config.get("sensitive_paths_monitoring", {})
+                sp_cfg = config.get("sensitive_paths_monitoring", {}) or {}
+                log_info(
+                    f"Проверка чувствительных путей для {len(sp_cfg.get('urls', []))} URL"
                 )
-                log_info("Проверка чувствительных директорий завершена")
+                results["checks"]["sensitive_paths"] = await check_sensitive_paths(
+                    sp_cfg
+                )
+                stats = results["checks"]["sensitive_paths"]
+                log_info(
+                    "Проверка чувствительных директорий завершена: "
+                    f"total={stats.get('total')}, exposed={stats.get('exposed')}, "
+                    f"errors={stats.get('errors')}"
+                )
             except Exception as e:
-                log_error(f"Ошибка проверки чувствительных директорий: {e}")
+                log_error("Ошибка проверки чувствительных директорий", exc=e)
                 results["checks"]["sensitive_paths"] = {"error": str(e)}
             progress.remove_task(task)
 
@@ -186,11 +283,13 @@ async def save_reports(config: dict, results: dict):
             json_path = output_dir / f"report_{date_str}.json"
             write_json_report(results, json_path)
             console.print(f"[green]✓[/green] JSON отчет сохранен: {json_path}")
+            log_debug(f"JSON отчет сохранен в {json_path}")
 
         if config.get("output", {}).get("text_format", False):
             txt_path = output_dir / f"report_{date_str}.txt"
             write_text_report(results, txt_path)
             console.print(f"[green]✓[/green] Текстовый отчет сохранен: {txt_path}")
+            log_debug(f"Текстовый отчет сохранен в {txt_path}")
 
         site_reports = write_site_reports(
             results,
@@ -207,7 +306,7 @@ async def save_reports(config: dict, results: dict):
 
         log_info("Отчеты успешно сохранены")
     except Exception as e:
-        log_error(f"Ошибка сохранения отчетов: {e}")
+        log_error("Ошибка сохранения отчетов", exc=e)
         console.print(f"[bold red]Ошибка сохранения:[/bold red] {e}")
 
 
@@ -222,6 +321,9 @@ async def monitoring_loop(config: dict):
     console.print(
         f"[bold cyan]Мониторинг запущен с интервалом {interval} сек.[/bold cyan]\n"
     )
+    log_info(
+        f"Мониторинг запущен: interval={interval}s, offline_attempts={offline_attempts}"
+    )
 
     fail_counter = 0
     iteration = 0
@@ -231,6 +333,7 @@ async def monitoring_loop(config: dict):
         console.print(
             f"\n[white]=== Итерация #{iteration} — {datetime.now().isoformat()} ===[/white]"
         )
+        log_info(f"Начало итерации мониторинга #{iteration}")
 
         # Конфиг для нотификаций берём каждый цикл (на случай hot-reload через файл)
         notifications_cfg = config.get("notifications", {}) or {}
@@ -437,7 +540,7 @@ async def monitoring_loop(config: dict):
 
         except Exception as e:
             fail_counter += 1
-            log_error(f"Ошибка цикла мониторинга: {e}")
+            log_error("Ошибка цикла мониторинга", exc=e)
             if fail_counter >= offline_attempts:
                 # при падении самого мониторинга
                 await send_notification(
@@ -450,6 +553,7 @@ async def monitoring_loop(config: dict):
                 )
                 fail_counter = 0  # чтобы не заспамить
 
+        log_debug(f"Итерация #{iteration} завершена, ждем {interval}с до следующей")
         await asyncio.sleep(interval)
 
 
@@ -460,6 +564,7 @@ async def main():
     try:
         config = load_config()
         setup_logger(config.get("logging", {}))
+        install_global_exception_hooks(asyncio.get_running_loop())
         log_info("Конфигурация успешно загружена")
     except Exception as e:
         console.print(
@@ -471,9 +576,21 @@ async def main():
     db_stream: Optional[DatabaseStream] = DatabaseStream.from_config(config)
     queue_stream: Optional[QueueStream] = QueueStream.from_config(config)
     docker_stream: Optional[DockerStream] = DockerStream.from_config(config)
+    supervisor_threads = ProcessSupervisor.from_config(config)
 
-    active_streams = [s for s in (task_stream, db_stream, queue_stream, docker_stream) if s]
+    active_streams = [
+        s
+        for s in (
+            task_stream,
+            db_stream,
+            queue_stream,
+            docker_stream,
+            *supervisor_threads,
+        )
+        if s
+    ]
     for stream in active_streams:
+        log_debug(f"Стартуем поток {stream.name}")
         stream.start()
 
     try:
@@ -481,6 +598,7 @@ async def main():
     finally:
         for stream in active_streams:
             try:
+                log_debug(f"Останавливаем поток {stream.name}")
                 stream.stop()
             except Exception:
                 pass

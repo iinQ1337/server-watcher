@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
+from utils.logger import log_debug, log_error, log_info, log_warning
+
 
 # ===== PYTHON / PIP =====
 
@@ -260,9 +262,12 @@ async def check_node_versions(node_config: Dict[str, Any]) -> Dict[str, Any]:
     paths: List[str] = node_config.get("paths", [])
     exclude_packages: List[str] = node_config.get("exclude_packages", [])
 
+    log_info(f"[Versions][Node] Старт проверки npm пакетов из {len(paths)} путей")
+
     try:
         collected = _collect_node_packages(paths, exclude_packages)
         result["total_packages"] = len(collected)
+        log_debug(f"[Versions][Node] Собрано {len(collected)} пакетов для проверки")
 
         if not collected:
             return result
@@ -323,6 +328,7 @@ async def check_node_versions(node_config: Dict[str, Any]) -> Dict[str, Any]:
 
     except Exception as e:  # noqa: BLE001
         result["error"] = str(e)
+        log_error("[Versions][Node] Ошибка проверки npm пакетов", exc=e)
 
     return result
 
@@ -349,15 +355,19 @@ async def check_versions(config: Dict[str, Any]) -> Dict[str, Any]:
         # "node": {...} появится ниже, если включено
     }
 
+    log_info("[Versions] Старт проверки Python пакетов")
+
     try:
         # --- Python / pip ---
         installed = get_installed_packages()
         installed = [p for p in installed if p["name"] not in exclude_packages]
         result["total_packages"] = len(installed)
+        log_debug(f"[Versions] Обнаружено {len(installed)} Python пакетов после исключений")
 
         if not check_pypi:
             # Только список без проверки обновлений
             result["packages"] = installed
+            log_info("[Versions] Проверка PyPI отключена, собран только список пакетов")
         else:
             connector = aiohttp.TCPConnector(limit=20)
             timeout = aiohttp.ClientTimeout(total=30)
@@ -419,5 +429,16 @@ async def check_versions(config: Dict[str, Any]) -> Dict[str, Any]:
 
     except Exception as e:  # noqa: BLE001
         result["error"] = str(e)
+        log_error("[Versions] Ошибка проверки версий", exc=e)
+
+    log_info(
+        "[Versions] Завершено: "
+        f"total={result.get('total_packages')}, "
+        f"updates={result.get('updates_available')}, "
+        f"major={result.get('major_updates_available')}, "
+        f"failed={result.get('check_failed')}"
+    )
+    if result.get("error"):
+        log_warning(f"[Versions] Ошибка в результате: {result['error']}")
 
     return result

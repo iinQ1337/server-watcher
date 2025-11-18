@@ -196,6 +196,11 @@ def get_default_config() -> Dict[str, Any]:
             'certificates': [],  # [{host, port, timeout_ms}]
             'warn_days': 30
         },
+        'supervisor': {
+            'enabled': False,
+            'log_directory': 'output/supervisor',
+            'processes': [],
+        },
     }
 
 

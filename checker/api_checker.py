@@ -6,13 +6,14 @@
 @brief Проверка API endpoints (GET/POST/PUT/DELETE/HEAD, Bearer, JSON/schema)
 """
 
+import json
 import asyncio
 import time
 from typing import Dict, Any, List
-import aiohttp
-import json
 
-from utils.logger import log_debug, log_large_debug, log_warning
+import aiohttp
+
+from utils.logger import log_debug, log_error, log_info, log_large_debug, log_warning
 
 
 async def check_single_endpoint(
@@ -134,10 +135,13 @@ async def check_single_endpoint(
     except asyncio.TimeoutError:
         result["error"] = f"Timeout after {timeout}s"
         result["response_time"] = round(timeout * 1000, 2)
+        log_warning(f"[API checker] Timeout {method} {url} after {timeout}s")
     except aiohttp.ClientError as e:
         result["error"] = f"Connection error: {str(e)}"
+        log_warning(f"[API checker] Connection error {method} {url}: {e}")
     except Exception as e:
         result["error"] = f"Unexpected error: {str(e)}"
+        log_warning(f"[API checker] Unexpected error {method} {url}: {e}")
 
     return result
 
@@ -167,6 +171,10 @@ async def check_api_endpoints(config: Dict[str, Any]) -> Dict[str, Any]:
                             or polling_cfg.get("concurrency_limit", 10)
                             or 10)
 
+    log_info(
+        f"[API] Начинаем проверки {len(endpoints)} endpoint(ов), timeout={default_timeout}s, concurrency={concurrency_limit}"
+    )
+
     connector = aiohttp.TCPConnector(
         limit=concurrency_limit,
         limit_per_host=concurrency_limit,
@@ -193,6 +201,7 @@ async def check_api_endpoints(config: Dict[str, Any]) -> Dict[str, Any]:
 
     for i, result in enumerate(results):
         if isinstance(result, Exception):
+            log_error(f"[API] Exception при проверке {endpoints[i].get('url', 'unknown')}", exc=result)  # type: ignore[arg-type]
             processed_results.append({
                 "url": endpoints[i].get("url", "unknown"),
                 "error": str(result),
@@ -205,16 +214,20 @@ async def check_api_endpoints(config: Dict[str, Any]) -> Dict[str, Any]:
         if result.get("success"):
             successful += 1
         else:
+            log_warning(f"[API] Ошибка {result.get('method')} {result.get('url')}: {result.get('error')}")
             failed += 1
 
     times = [r.get("response_time", 0) for r in processed_results if r.get("response_time") is not None]
     avg_time = round(sum(times) / len(times), 2) if times else 0.0
 
-    return {
+    summary = {
         "total": len(endpoints),
         "successful": successful,
         "failed": failed,
         "avg_response_time": avg_time,
         "results": processed_results,
     }
-
+    log_info(
+        f"[API] Завершены проверки: total={summary['total']}, ok={summary['successful']}, failed={summary['failed']}, avg={summary['avg_response_time']} ms"
+    )
+    return summary

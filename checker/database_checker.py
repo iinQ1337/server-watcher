@@ -5,6 +5,8 @@ import asyncio
 import time
 from typing import Dict, Any, Optional
 
+from utils.logger import log_error, log_info, log_warning
+
 
 async def check_mysql_connection(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -24,6 +26,7 @@ async def check_mysql_connection(config: Dict[str, Any]) -> Dict[str, Any]:
         'error': None
     }
     
+    log_info(f"[DB] Проверка MySQL {config.get('host')}:{config.get('port', 3306)}")
     try:
         import aiomysql
         
@@ -59,8 +62,10 @@ async def check_mysql_connection(config: Dict[str, Any]) -> Dict[str, Any]:
         
     except ImportError:
         result['error'] = "aiomysql not installed. Install with: pip install aiomysql"
+        log_warning("[DB] aiomysql не установлен")
     except Exception as e:
         result['error'] = str(e)
+        log_error("[DB] Ошибка проверки MySQL", exc=e)
     
     return result
 
@@ -83,6 +88,7 @@ async def check_postgresql_connection(config: Dict[str, Any]) -> Dict[str, Any]:
         'error': None
     }
     
+    log_info(f"[DB] Проверка PostgreSQL {config.get('host')}:{config.get('port', 5432)}")
     try:
         import asyncpg
         
@@ -116,8 +122,10 @@ async def check_postgresql_connection(config: Dict[str, Any]) -> Dict[str, Any]:
         
     except ImportError:
         result['error'] = "asyncpg not installed. Install with: pip install asyncpg"
+        log_warning("[DB] asyncpg не установлен")
     except Exception as e:
         result['error'] = str(e)
+        log_error("[DB] Ошибка проверки PostgreSQL", exc=e)
     
     return result
 
@@ -131,6 +139,8 @@ async def check_databases(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     databases = config.get('databases', [])
     
+    log_info(f"[DB] Старт проверки {len(databases)} БД")
+
     results = {
         'total': len(databases),
         'connected': 0,
@@ -151,6 +161,7 @@ async def check_databases(config: Dict[str, Any]) -> Dict[str, Any]:
                     'type': db_type,
                     'error': f"Unsupported database type: {db_type}"
                 }
+                log_warning(f"[DB] Неизвестный тип БД: {db_type}")
             
             if db_result.get('connected'):
                 results['connected'] += 1
@@ -166,5 +177,9 @@ async def check_databases(config: Dict[str, Any]) -> Dict[str, Any]:
                 'error': str(e),
                 'connected': False
             })
-    
+            log_error("[DB] Исключение при проверке БД", exc=e)
+
+    log_info(
+        f"[DB] Завершено: total={results['total']}, connected={results['connected']}, failed={results['failed']}"
+    )
     return results

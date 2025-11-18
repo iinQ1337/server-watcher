@@ -13,6 +13,8 @@ import asyncio
 import time
 from typing import Dict, Any, Optional
 
+from utils.logger import log_error, log_info, log_warning
+
 
 async def check_redis_connection(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -34,6 +36,7 @@ async def check_redis_connection(config: Dict[str, Any]) -> Dict[str, Any]:
         'error': None
     }
     
+    log_info(f"[Queue][Redis] Проверка {config.get('host', 'localhost')}:{config.get('port', 6379)}")
     try:
         import aioredis
         
@@ -69,8 +72,10 @@ async def check_redis_connection(config: Dict[str, Any]) -> Dict[str, Any]:
         
     except ImportError:
         result['error'] = "aioredis not installed. Install with: pip install aioredis"
+        log_warning("[Queue][Redis] aioredis не установлен")
     except Exception as e:
         result['error'] = str(e)
+        log_error("[Queue][Redis] Ошибка проверки", exc=e)
     
     return result
 
@@ -92,6 +97,7 @@ async def check_rabbitmq_connection(config: Dict[str, Any]) -> Dict[str, Any]:
         'error': None
     }
     
+    log_info(f"[Queue][RabbitMQ] Проверка {config.get('host', 'localhost')}:{config.get('port', 5672)}")
     try:
         import aio_pika
         
@@ -127,8 +133,10 @@ async def check_rabbitmq_connection(config: Dict[str, Any]) -> Dict[str, Any]:
         
     except ImportError:
         result['error'] = "aio_pika not installed. Install with: pip install aio-pika"
+        log_warning("[Queue][RabbitMQ] aio_pika не установлен")
     except Exception as e:
         result['error'] = str(e)
+        log_error("[Queue][RabbitMQ] Ошибка проверки", exc=e)
     
     return result
 
@@ -142,6 +150,8 @@ async def check_queues(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     queues = config.get('queues', [])
     
+    log_info(f"[Queue] Старт проверки {len(queues)} очередей")
+
     results = {
         'total': len(queues),
         'connected': 0,
@@ -162,6 +172,7 @@ async def check_queues(config: Dict[str, Any]) -> Dict[str, Any]:
                     'type': queue_type,
                     'error': f"Unsupported queue type: {queue_type}"
                 }
+                log_warning(f"[Queue] Неизвестный тип очереди: {queue_type}")
             
             if queue_result.get('connected'):
                 results['connected'] += 1
@@ -177,5 +188,9 @@ async def check_queues(config: Dict[str, Any]) -> Dict[str, Any]:
                 'error': str(e),
                 'connected': False
             })
-    
+            log_error("[Queue] Исключение при проверке очереди", exc=e)
+
+    log_info(
+        f"[Queue] Завершено: total={results['total']}, ok={results['connected']}, failed={results['failed']}"
+    )
     return results

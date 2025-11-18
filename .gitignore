@@ -3,3 +3,6 @@ __pycache__/
 output/
 Doxyfile
 monitoring.log
+venv/
+dev/
+.pytest_cache

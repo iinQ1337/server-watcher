@@ -6,6 +6,8 @@ from typing import Dict, Any, List, Optional
 import aiohttp
 from yarl import URL
 
+from utils.logger import log_debug, log_error, log_info, log_warning
+
 async def _fetch_text(resp: aiohttp.ClientResponse) -> str:
     try:
         return await resp.text(errors="ignore")
@@ -170,11 +172,17 @@ async def check_single_page(session: aiohttp.ClientSession, page: Dict[str, Any]
     except asyncio.TimeoutError:
         result["error"] = f"Timeout after {timeout}s"
         result["response_time"] = round(timeout * 1000, 2)
+        log_warning(f"[Pages] Timeout {method} {url} after {timeout}s")
     except aiohttp.ClientError as e:
         result["error"] = f"Connection error: {e}"
+        log_warning(f"[Pages] Connection error {method} {url}: {e}")
     except Exception as e:
         result["error"] = f"Unexpected error: {e}"
+        log_error(f"[Pages] Unexpected error {method} {url}", exc=e)
 
+    log_debug(
+        f"[Pages] Итог {method} {url}: status={result['status']}, success={result['success']}, error={result['error']}"
+    )
     return result
 
 
@@ -195,6 +203,7 @@ async def check_web_pages(config: Dict[str, Any]) -> Dict[str, Any]:
             "results": [],
         }
 
+    log_info(f"[Pages] Старт проверки {len(pages)} страниц")
     connector = aiohttp.TCPConnector(limit=10, limit_per_host=5)
     timeout = aiohttp.ClientTimeout(total=config.get("total_timeout", 60))
 
@@ -209,6 +218,7 @@ async def check_web_pages(config: Dict[str, Any]) -> Dict[str, Any]:
     for i, item in enumerate(results):
         if isinstance(item, Exception):
             page_cfg = pages[i]
+            log_error(f"[Pages] Ошибка при проверке {page_cfg.get('url', 'unknown')}", exc=item)  # type: ignore[arg-type]
             processed.append(
                 {
                     "url": page_cfg.get("url", "unknown"),
@@ -225,16 +235,21 @@ async def check_web_pages(config: Dict[str, Any]) -> Dict[str, Any]:
             if item.get("success"):
                 successful += 1
             else:
+                log_warning(f"[Pages] Неуспешный ответ {item.get('method')} {item.get('url')}: {item.get('error')}")
                 failed += 1
 
     # compute average response time
     times = [r.get("response_time") for r in processed if r.get("response_time") is not None]
     avg_time = round(sum(times) / len(times), 2) if times else 0.0
 
-    return {
+    summary = {
         "total": len(pages),
         "successful": successful,
         "failed": failed,
         "avg_response_time": avg_time,
         "results": processed,
     }
+    log_info(
+        f"[Pages] Завершены проверки: total={summary['total']}, ok={summary['successful']}, failed={summary['failed']}, avg={summary['avg_response_time']} ms"
+    )
+    return summary

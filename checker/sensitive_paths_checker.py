@@ -16,7 +16,7 @@ from urllib.parse import urljoin
 
 import aiohttp
 
-from utils.logger import log_warning, log_debug
+from utils.logger import log_debug, log_error, log_info, log_warning
 
 
 SENSITIVE_PATHS: List[str] = [
@@ -295,6 +295,9 @@ async def check_sensitive_paths(config: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     paths = _normalize_paths(extra_paths)
+    log_info(
+        f"[sensitive_paths] Старт: base_urls={len(base_urls)}, paths={len(paths)}, concurrency={concurrency}, timeout={timeout}s"
+    )
 
     sem = asyncio.Semaphore(concurrency)
 
@@ -319,7 +322,18 @@ async def check_sensitive_paths(config: Dict[str, Any]) -> Dict[str, Any]:
             for p in paths:
                 tasks.append(asyncio.create_task(wrapped_check(base, p)))
 
-        raw_results = await asyncio.gather(*tasks, return_exceptions=False)
+        try:
+            raw_results = await asyncio.gather(*tasks, return_exceptions=False)
+        except Exception as exc:  # pragma: no cover - защитный блок
+            log_error("[sensitive_paths] Ошибка при выполнении проверок", exc=exc)
+            return {
+                "enabled": True,
+                "error": str(exc),
+                "total_checked": 0,
+                "exposed": 0,
+                "errors": 1,
+                "results": [],
+            }
 
     exposed = 0
     errors = 0
@@ -329,10 +343,17 @@ async def check_sensitive_paths(config: Dict[str, Any]) -> Dict[str, Any]:
         if r.get("error"):
             errors += 1
 
-    return {
+    summary = {
         "enabled": True,
         "total_checked": len(raw_results),
         "exposed": exposed,
         "errors": errors,
         "results": raw_results,
     }
+    log_info(
+        f"[sensitive_paths] Завершено: total={summary['total_checked']}, exposed={summary['exposed']}, errors={summary['errors']}"
+    )
+    if errors:
+        log_warning(f"[sensitive_paths] Обнаружено {errors} ошибок при проверке")
+
+    return summary

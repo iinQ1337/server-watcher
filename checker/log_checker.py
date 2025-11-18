@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import Dict, Any, List
 
+from utils.logger import log_error, log_info, log_warning
+
 ERROR_PATTERNS = [
     re.compile(r"\bERROR\b", re.IGNORECASE),
     re.compile(r"\bCRITICAL\b", re.IGNORECASE),
@@ -110,9 +112,11 @@ async def check_logs(config: Dict[str, Any]) -> Dict[str, Any]:
 
         if not path.exists():
             file_res["error"] = "File not found"
+            log_warning(f"[Logs] Файл не найден: {path}")
             return file_res
         if not path.is_file():
             file_res["error"] = "Not a regular file"
+            log_warning(f"[Logs] Не файл: {path}")
             return file_res
 
         try:
@@ -137,15 +141,22 @@ async def check_logs(config: Dict[str, Any]) -> Dict[str, Any]:
     tasks = [process_file(str(p)) for p in log_files]
     files_res = await asyncio.gather(*tasks, return_exceptions=True)
 
+    log_info(f"[Logs] Старт анализа {len(log_files)} файлов")
+
     for item in files_res:
         if isinstance(item, Exception):
             result["failed_files"] += 1
             result["files"].append({"error": str(item)})
+            log_error("[Logs] Ошибка при обработке файла", exc=item)  # type: ignore[arg-type]
         else:
             result["files"].append(item)
             if item.get("error"):
                 result["failed_files"] += 1
             else:
                 result["processed_files"] += 1
+
+    log_info(
+        f"[Logs] Завершено: processed={result['processed_files']}, failed={result['failed_files']}"
+    )
 
     return result

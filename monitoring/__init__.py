@@ -10,5 +10,6 @@ from .task_manager import TaskManagerStream
 from .database_stream import DatabaseStream
 from .docker_stream import DockerStream
 from .queue_stream import QueueStream
+from .supervisor import ProcessSupervisor
 
-__all__ = ["TaskManagerStream", "DatabaseStream", "DockerStream", "QueueStream"]
+__all__ = ["TaskManagerStream", "DatabaseStream", "DockerStream", "QueueStream", "ProcessSupervisor"]

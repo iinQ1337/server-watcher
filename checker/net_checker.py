@@ -17,6 +17,8 @@ import smtplib
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from utils.logger import log_info, log_warning
+
 
 # ===== ВСПОМОГАТЕЛЬНЫЕ УТИЛИТЫ =====
 
@@ -349,6 +351,13 @@ async def check_network(config: Dict[str, Any]) -> Dict[str, Any]:
         ]
       }
     """
+    log_info(
+        "[Network] Старт проверок: "
+        f"ports={len(config.get('ports', []))}, "
+        f"tcp={len(config.get('tcp_checks', []))}, "
+        f"smtp={len(config.get('smtp', []))}, "
+        f"certs={len(config.get('certificates', []))}"
+    )
     result: Dict[str, Any] = {
         "enabled": config.get("enabled", False),
         "overall_status": "disabled",
@@ -390,6 +399,10 @@ async def check_network(config: Dict[str, Any]) -> Dict[str, Any]:
                 result["ports"]["closed_or_timeout"] += 1
                 if result["overall_status"] == "ok":
                     result["overall_status"] = "warning"
+        log_info(
+            f"[Network] Порты: total={result['ports']['total_targets']}, "
+            f"open={result['ports']['open']}, closed_or_timeout={result['ports']['closed_or_timeout']}"
+        )
 
     # ---- TCP-проверки (payload/expect)
     tcp_cfg: List[Dict[str, Any]] = config.get("tcp_checks", [])
@@ -417,6 +430,10 @@ async def check_network(config: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 result["tcp"]["failed"] += 1
                 result["overall_status"] = "warning"
+        log_info(
+            f"[Network] TCP проверки: total={result['tcp']['total_checks']}, "
+            f"ok={result['tcp']['successful']}, failed={result['tcp']['failed']}"
+        )
 
     # ---- SMTP
     smtp_cfg: List[Dict[str, Any]] = config.get("smtp", [])
@@ -444,6 +461,10 @@ async def check_network(config: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 result["smtp"]["failed"] += 1
                 result["overall_status"] = "warning"
+        log_info(
+            f"[Network] SMTP проверки: total={result['smtp']['total_servers']}, "
+            f"ok={result['smtp']['successful']}, failed={result['smtp']['failed']}"
+        )
 
     # ---- Сертификаты
     cert_cfg: List[Dict[str, Any]] = config.get("certificates", [])
@@ -477,5 +498,14 @@ async def check_network(config: Dict[str, Any]) -> Dict[str, Any]:
                     result["overall_status"] = "warning"
             else:
                 result["certificates"]["ok"] += 1
+        log_info(
+            f"[Network] Сертификаты: total={result['certificates']['total_hosts']}, "
+            f"ok={result['certificates']['ok']}, warn={result['certificates']['warn']}, "
+            f"expired={result['certificates']['expired']}"
+        )
 
+    if result["overall_status"] != "ok":
+        log_warning(f"[Network] Обнаружены проблемы, статус: {result['overall_status']}")
+    else:
+        log_info(f"[Network] Готово, статус: {result['overall_status']}")
     return result

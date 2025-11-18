@@ -9,9 +9,11 @@
 @date 2025-11-09
 """
 
+import asyncio
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 # Global project logger
@@ -66,25 +68,45 @@ def setup_logger(config: Dict[str, Any]) -> logging.Logger:
 
     formatter = logging.Formatter(fmt)
 
+    handlers = []
+
     if console_enabled:
         console_handler = logging.StreamHandler(stream=sys.stdout)
         console_handler.setLevel(level)
         console_handler.setFormatter(formatter)
-        LOGGER.addHandler(console_handler)
+        handlers.append(console_handler)
 
     if file_enabled:
         try:
+            log_path = Path(log_file)
+            if log_path.parent:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
             file_handler = RotatingFileHandler(
-                log_file,
+                log_path,
                 maxBytes=max_bytes,
                 backupCount=backup_count,
                 encoding="utf-8",
             )
             file_handler.setLevel(level)
             file_handler.setFormatter(formatter)
-            LOGGER.addHandler(file_handler)
+            handlers.append(file_handler)
         except Exception as e:
             LOGGER.error(f"Failed to set up file logger: {e}")
+
+    # configure root so любые сторонние логеры тоже пишутся в файл
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.setLevel(level)
+    for h in handlers:
+        root_logger.addHandler(h)
+    root_logger.propagate = False
+
+    # наш именованный логер пробрасывает события в root
+    LOGGER.handlers.clear()
+    LOGGER.setLevel(level)
+    LOGGER.propagate = True
+
+    logging.captureWarnings(True)
 
     LOGGER.debug("Logger 'monitoring' configured")
     return LOGGER
@@ -134,3 +156,33 @@ def log_large_error(message: str, chunk_size: int = 10000) -> None:
         return
     for i in range(0, len(message), chunk_size):
         LOGGER.error(message[i:i+chunk_size])
+
+
+def install_global_exception_hooks(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    """
+    Подключает перехват необработанных исключений (sync/async) в общий лог.
+    """
+    target_logger = LOGGER
+
+    def _handle_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            target_logger.warning("KeyboardInterrupt received", exc_info=(exc_type, exc_value, exc_traceback))
+            return
+        target_logger.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+    sys.excepthook = _handle_exception
+
+    active_loop: Optional[asyncio.AbstractEventLoop] = loop
+    if active_loop is None:
+        try:
+            active_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            active_loop = None
+
+    if active_loop:
+        def _handle_async_error(event_loop, context: Dict[str, Any]):  # type: ignore[override]
+            message = context.get("message", "Unhandled asyncio exception")
+            exc = context.get("exception")
+            target_logger.error(f"{message}", exc_info=exc)
+
+        active_loop.set_exception_handler(_handle_async_error)

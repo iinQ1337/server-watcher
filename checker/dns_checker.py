@@ -13,6 +13,8 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 
+from utils.logger import log_error, log_info, log_warning
+
 try:
     import dns.resolver as dns_resolver  # type: ignore
 except ImportError:  # type: ignore
@@ -115,6 +117,8 @@ async def _check_single_domain(domain: str, config: Dict[str, Any]) -> Dict[str,
         "error": None,
     }
 
+    log_info(f"[DNS] Проверяем домен {domain}")
+
     try:
         res["dns"] = await _resolve_records(domain, record_types)
         res["whois"] = await _fetch_whois(domain, check_whois_flag)
@@ -137,6 +141,7 @@ async def _check_single_domain(domain: str, config: Dict[str, Any]) -> Dict[str,
     except Exception as e:
         res["error"] = str(e)
         res["status"] = "error"
+        log_error(f"[DNS] Ошибка при проверке домена {domain}", exc=e)
 
     return res
 
@@ -155,6 +160,8 @@ async def check_dns(config: Dict[str, Any]) -> Dict[str, Any]:
             "errors": 0,
         }
 
+    log_info(f"[DNS] Старт проверки {len(domains)} доменов")
+
     tasks = [_check_single_domain(d, config) for d in domains]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -171,13 +178,18 @@ async def check_dns(config: Dict[str, Any]) -> Dict[str, Any]:
                 }
             )
             errors += 1
+            log_error(f"[DNS] Исключение при проверке домена {domains[i]}", exc=item)  # type: ignore[arg-type]
         else:
             processed.append(item)
             if item.get("status") == "error":
                 errors += 1
+                log_warning(f"[DNS] Ошибка в результате для {item.get('domain')}: {item.get('error')}")
 
-    return {
+    summary = {
         "total_domains": len(domains),
         "errors": errors,
         "results": processed,
     }
+    log_info(f"[DNS] Завершено: total={summary['total_domains']}, errors={summary['errors']}")
+
+    return summary

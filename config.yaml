@@ -12,6 +12,47 @@ output:
   json_format: true
   text_format: false
 
+# === Mini Supervisor (optional) ===
+supervisor:
+  enabled: true
+  log_directory: output/supervisor
+  # single process example (you can also use supervisor.processes: [])
+  command:
+    executable: "node"
+    args:
+      - "server.js"
+    working_dir: "/Users/pc/Desktop/server/"
+    env:
+      APP_ENV: "prod"
+  restart_policy:
+    mode: "always"             # always | on-failure | never
+    restart_delay_seconds: 5
+    max_restarts_per_minute: 10
+  # multiple processes example (optional)
+  processes:
+    - name: "supervised-task"
+      enabled: true
+      command:
+        executable: "node"
+        args: ["server.js"]
+        working_dir: "/Users/pc/Desktop/server/"
+      restart_policy:
+        mode: "always"
+        restart_delay_seconds: 5
+    - name: "second-task"   
+      enabled: true
+      command:
+        executable: "/bin/bash"
+        args: ["-lc", "echo hello && sleep 10"]
+      restart_policy:
+        mode: "on-failure"
+    - name: "simulated-failure"
+      enable: true
+      command:
+        executable: "/bin/bash"
+        args: ["-lc", "echo 'Simulated failure on purpose' 1>&2; exit 1"]
+      restart_policy: never
+
 dashboard:
   docker_stream:
     enabled: true
