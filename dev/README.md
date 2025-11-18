@@ -1,15 +1,15 @@
-# Локальный стенд для тестов БД и Docker
+## Local DB & Docker Test Stand
 
-1. Запустите stack:
+1. Start the stack:
    ```bash
    docker compose -f dev/local-stack-compose.yml up -d
    ```
-   Запустятся:
+   This launches:
    - `monitoring-db` (Postgres 16, user/password/db: `monitor`)
-   - `monitoring-demo-app` (Nginx с health-check на `/health`, порт 8080)
-   - `monitoring-worker` (долгоживущий контейнер для демонстрации статуса)
+   - `monitoring-demo-app` (Nginx with a `/health` endpoint, port 8080)
+   - `monitoring-worker` (long-running container to demonstrate status)
 
-2. Пример конфига для потока БД (`config.yaml`):
+2. Sample config for the DB stream (`config.yaml`):
    ```yaml
    dashboard:
      databases_stream:
@@ -28,9 +28,9 @@
            storage_used_gb: 1
    ```
 
-3. Поток Docker (`docker_stream`) будет собирать данные из запущенного compose через `docker stats/ps` — ничего дополнительно не требуется.
+3. Docker stream (`docker_stream`) will collect data from the running compose via `docker stats/ps` — no extra setup required.
 
-4. Остановка:
+4. Stop the stack:
    ```bash
    docker compose -f dev/local-stack-compose.yml down -v
    ```
