@@ -17,27 +17,42 @@ Python daemon that continuously checks APIs, web pages, servers, networks, datab
 
 ## Features
 - **Health Checks:** API endpoints, web pages, server resources, dependency versions (Python/Node), DNS/WHOIS, network (ports/TCP/SMTP/TLS), log analysis, sensitive paths, databases (MySQL/PostgreSQL), queues (Redis/RabbitMQ).
+
 - **Streams for UI:** Docker containers/nodes/events, database summary & backups, task-manager snapshot (CPU/mem/top processes), queue reachability.
+
 - **Process Supervisor:** Runs external commands with restart policy, captures stdout/stderr to JSON (and TXT if enabled).
+
 - **Notifications:** Telegram/Discord with templates, tags, retries, per-event filtering.
+
 - **Reports:** Combined `report_<timestamp>.json` and per-site reports.
 
 ## Checks in Detail
 - **API (`checker/api_checker.py`):** HTTP methods, headers/auth (Bearer), timeouts, JSON validation with schema keys, response preview, optional full-response logging and saving to file.
+
 - **Pages (`checker/page_checker.py`):** Status/redirect chains, title/meta snapshot, must_contain/must_not_contain, perf warnings (slow response), security hints (HSTS, HTTPS redirect, gzip), robots/sitemap probes.
+
 - **Server (`checker/server_checker.py`):** CPU/memory/disk vs thresholds, per-mount disk health, uptime humanized, basic net counters.
+
 - **Versions (`checker/version_checker.py`):** pip list vs PyPI (updates/major updates), Node deps via `npm ls` and registry checks, stats per ecosystem.
 - **Logs (`checker/log_checker.py`):** Tail of configured files, count ERROR/WARNING/CRITICAL, collect last error lines, failed/missing files.
+
 - **DNS (`checker/dns_checker.py`):** DNS records per type, WHOIS info, domain status (ok/expiring/expired), error capture.
+
 - **Network (`checker/net_checker.py`):** Port reachability, TCP payload/expect matching, SMTP EHLO/STARTTLS/LOGIN/NOOP, TLS cert issuer/SAN/days_remaining with warn/expired flags.
+
 - **Sensitive Paths (`checker/sensitive_paths_checker.py`):** Probe base_urls × known sensitive files/folders with treat_401/403_as_exposed flags, counts exposed/errors.
+
 - **Databases (`checker/database_checker.py`):** MySQL (aiomysql) and Postgres (asyncpg) connect/version/test_query timings; unsupported types surfaced as errors.
+
 - **Queues (`checker/queue_checker.py`):** Redis (aioredis) PING/info/DB size/queue length; RabbitMQ (aio_pika) passive queue declare and stats.
 
 ## Streams in Detail (Dashboard Data)
 - **Docker Stream (`monitoring/docker_stream.py`):** Containers/nodes/events via Docker CLI, CPU/mem stats (with optional psutil enrich), summary counts, writes `output/docker_stream.json`.
+
 - **Database Stream (`monitoring/database_stream.py`):** Periodic `check_databases`, alerts/backups loading, optional auto-backup (mysqldump/pg_dump) with history, writes `output/database_stream.json`.
+
 - **Task Manager Stream (`monitoring/task_manager.py`):** CPU/mem history, per-core/load_avg, top processes (pid/user/cmd/cpu/mem), writes `output/task_manager_stream.json`.
+
 - **Queue Stream (`monitoring/queue_stream.py`):** TCP reachability and Redis PING for configured queues/endpoints, writes `output/queue_stream.json`.
 
 ## Notifications (Telegram/Discord)
