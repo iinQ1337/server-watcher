@@ -16,42 +16,43 @@ output:
 supervisor:
   enabled: true
   log_directory: output/supervisor
-  # single process example (you can also use supervisor.processes: [])
+  healthcheck:
+    enabled: true
+    host: 127.0.0.1
+    port: 8130
+  watchdog:
+    enabled: true
+    check_interval_sec: 140
+    stale_threshold_sec: 45
   command:
-    executable: "node"
+    name: supervised-task
+    executable: node
     args:
-      - "server.js"
-    working_dir: "/Users/pc/Desktop/server/"
+      - server.js
+    working_dir: /Users/pc/Desktop/server/
     env:
-      APP_ENV: "prod"
+      APP_ENV: prod
+    user: pc
+    group: null
+    resource_limits:
+      memory_mb: 512
+      cpu_seconds: 120
+    resource_monitoring:
+      enabled: false
+      sample_interval_sec: 2
+      max_memory_mb: 700
+      max_cpu_percent: 90
+      memory_leak_restart_mb: 128
+      network_check_host: 8.8.8.8
+      network_check_timeout_sec: 2
   restart_policy:
-    mode: "always"             # always | on-failure | never
+    mode: always
     restart_delay_seconds: 5
+    restart_on_exit_0: true
     max_restarts_per_minute: 10
-  # multiple processes example (optional)
-  processes:
-    - name: "supervised-task"
-      enabled: true
-      command:
-        executable: "node"
-        args: ["server.js"]
-        working_dir: "/Users/pc/Desktop/server/"
-      restart_policy:
-        mode: "always"
-        restart_delay_seconds: 5
-    - name: "second-task"   
-      enabled: true
-      command:
-        executable: "/bin/bash"
-        args: ["-lc", "echo hello && sleep 10"]
-      restart_policy:
-        mode: "on-failure"
-    - name: "simulated-failure"
-      enable: true
-      command:
-        executable: "/bin/bash"
-        args: ["-lc", "echo 'Simulated failure on purpose' 1>&2; exit 1"]
-      restart_policy: never
+    hang_timeout_seconds: 60
+    hang_cpu_percent_threshold: 3
+    restart_on_hang: true
 
 dashboard:
   docker_stream:
@@ -59,7 +60,6 @@ dashboard:
     interval_sec: 20
     use_cli: true
     default_node: null
-
   databases_stream:
     enabled: true
     interval_sec: 60
@@ -72,23 +72,10 @@ dashboard:
     thresholds:
       replication_lag_ms: 250
       storage_percent: 85
-    instances:
-      - type: mysql
-        id: local-mysql
-        name: Local MySQL
-        host: localhost
-        port: 3306
-        user: monitor
-        password: monitor
-        database: monitor
-    alerts: []          # можно добавить объекты алертов
-    backups: []         # можно добавить расписания/статусы, если нужно
-
   site_history:
     files_per_site: 7
   themes: []
   active_theme_id: null
-
 
 # === API Endpoints Monitoring ===
 api_monitoring:
@@ -349,9 +336,9 @@ sensitive_paths_monitoring:
 
 # === Notifications & Integrations ===
 notifications:
-  enabled: true
+  enabled: false
   telegram:
-    enabled: true
+    enabled: false
     bot_token: ""
     chat_id: ""
     parse_mode: Markdown
@@ -382,8 +369,8 @@ notifications:
   common:
     retry_attempts: 3
     timeout_sec: 7
-    mute_when_recovering: true
-    include_tags: true
+    mute_when_recovering: false
+    include_tags: false
     tags:
       - api
 

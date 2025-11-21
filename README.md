@@ -20,7 +20,7 @@ Python daemon that continuously checks APIs, web pages, servers, networks, datab
 
 - **Streams for UI:** Docker containers/nodes/events, database summary & backups, task-manager snapshot (CPU/mem/top processes), queue reachability.
 
-- **Process Supervisor:** Runs external commands with restart policy, captures stdout/stderr to JSON (and TXT if enabled).
+- **Process Supervisor:** Watchdog + self-health, restart policies (incl. exit 0/hang), health-check API, resource caps/limits, stdout/stderr to JSON/TXT.
 
 - **Notifications:** Telegram/Discord with templates, tags, retries, per-event filtering.
 
@@ -103,15 +103,31 @@ output:  { directory: output, json_format: true, text_format: false }
 supervisor:
   enabled: true
   log_directory: output/supervisor
+  healthcheck: { enabled: true, host: "127.0.0.1", port: 8130 }
+  watchdog:    { enabled: true, check_interval_sec: 5, stale_threshold_sec: 45 }
   command:                     # single process
     executable: "python"
     args: ["app.py"]
     working_dir: "/path/to/app"
     env: { APP_ENV: "prod" }
+    user: "www-data"           # запуск под другим пользователем (POSIX)
+    resource_limits: { memory_mb: 512, cpu_seconds: 120 }  # жесткие rlimit
+    resource_monitoring:
+      enabled: true
+      sample_interval_sec: 2
+      max_memory_mb: 700
+      memory_leak_restart_mb: 128
+      max_cpu_percent: 90
+      network_check_host: "8.8.8.8"
+      network_check_timeout_sec: 2
   restart_policy:
     mode: "always"             # always | on-failure | never
     restart_delay_seconds: 5
+    restart_on_exit_0: true
     max_restarts_per_minute: 10
+    hang_timeout_seconds: 60
+    hang_cpu_percent_threshold: 3
+    restart_on_hang: true
   processes:                   # optional list of additional processes
     - name: "supervised-task"
       enabled: true
@@ -148,9 +164,12 @@ npm run dev   # open http://localhost:3000
 Panels: overview, Docker, databases, queues, supervisor, and settings. Uses relative path `../output` by default.
 
 ## Supervisor
-- Lives in `monitoring/supervisor.py`.
-- Captures stdout/stderr, writes periodic live snapshots while the process is running.
-- Restart policies: `always`, `on-failure`, `never`; `restart_delay_seconds`; `max_restarts_per_minute` to prevent flapping.
+- Lives in `monitoring/supervisor.py`, self-monitors state/heartbeats and writes restart reasons into `_latest.json`/`.log`.
+- Watchdog thread следит за самим супервизором и перезапускает поток при зависании/падении (crash recovery).
+- Health-check API (`/health` / `/supervisor`) настраивается через `supervisor.healthcheck` и отдаёт статус процессов, PID, ресурсы и счётчик рестартов.
+- Мониторинг ресурсов (CPU, память, сетевые подключения/доступ в интернет) + перезапуск при memory leak/превышении лимитов/idle-ханге.
+- Политики перезапуска: `always/on-failure/never`, `restart_on_exit_0`, защита от флаппинга, `hang_timeout_*`; есть запуск под разными пользователями и лимиты ресурсов (`resource_limits`).
+- psutil используется для метрик ресурса; при его отсутствии супервизор работает, но без детальных метрик/ограничений.
 
 ## Testing
 - See `TEST_PLAN.md` for detailed coverage per module (checks, streams, supervisor, notifications, error paths).

@@ -199,6 +199,16 @@ def get_default_config() -> Dict[str, Any]:
         'supervisor': {
             'enabled': False,
             'log_directory': 'output/supervisor',
+            'healthcheck': {
+                'enabled': False,
+                'host': '127.0.0.1',
+                'port': 8130,
+            },
+            'watchdog': {
+                'enabled': True,
+                'check_interval_sec': 5,
+                'stale_threshold_sec': 45,
+            },
             'processes': [],
         },
     }
