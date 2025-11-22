@@ -117,6 +117,12 @@ class SupervisorStateStore:
             return (cls._process_state.get(name) or {}).get("last_heartbeat")
 
     @classmethod
+    def get_process_state(cls, name: str) -> Optional[Dict[str, Any]]:
+        with cls._lock:
+            state = cls._process_state.get(name)
+            return copy.deepcopy(state) if state else None
+
+    @classmethod
     def snapshot(cls) -> Dict[str, Any]:
         with cls._lock:
             return {
@@ -280,7 +286,13 @@ class SupervisorWatchdog(threading.Thread):
 
                 if (not alive or stale) and not stopped_by_user and not self._stop_event.is_set():
                     reason = "supervisor_thread_dead" if not alive else "supervisor_heartbeat_stale"
-                    log_warning(f"[{name}] watchdog сработал: {reason}, перезапускаем поток")
+                    state = SupervisorStateStore.get_process_state(name) or {}
+                    log_warning(
+                        f"[{name}] watchdog сработал: {reason}, перезапускаем поток; "
+                        f"last_status={state.get('status')}, exit_code={state.get('exit_code')}, "
+                        f"error={state.get('error')}, restart_reason={state.get('restart_reason')}, "
+                        f"last_heartbeat_age={None if heartbeat is None else round(now - heartbeat, 2)}s"
+                    )
                     if thread and thread.is_alive():
                         with contextlib.suppress(Exception):
                             thread.stop()
@@ -511,7 +523,7 @@ class ProcessSupervisor(threading.Thread):
         self._memory_window.clear()
 
         log_info(
-            f"[{self.process_name}] старт процесса: {' '.join(command)} (cwd={workdir or os.getcwd()})"
+            f"[{self.process_name}] попытка запуска: {' '.join(command)} (cwd={workdir or os.getcwd()})"
         )
 
         preexec_fn = self._build_preexec_fn()
@@ -528,6 +540,9 @@ class ProcessSupervisor(threading.Thread):
                 preexec_fn=preexec_fn,
             )
             pid = self._current_process.pid
+            log_info(
+                f"[{self.process_name}] процесс запущен pid={pid} cwd={workdir or os.getcwd()}"
+            )
         except Exception as exc:  # pragma: no cover - защита от неверных конфигов
             error = str(exc)
             log_error(f"[{self.process_name}] не удалось запустить процесс", exc=exc)
@@ -866,27 +881,48 @@ class ProcessSupervisor(threading.Thread):
                 log_warning(f"[{self.process_name}] смена пользователя не поддерживается на этой платформе")
             return None
 
+        resolved_uid: Optional[int] = None
+        resolved_gid: Optional[int] = None
+
+        # заранее резолвим uid/gid, чтобы не падать внутри preexec_fn
+        if group and grp is not None:
+            try:
+                resolved_gid = int(group) if str(group).isdigit() else grp.getgrnam(str(group)).gr_gid
+            except Exception as exc:
+                log_warning(f"[{self.process_name}] не удалось найти group={group}: {exc}")
+                resolved_gid = None
+        if user and pwd is not None:
+            try:
+                resolved_uid = int(user) if str(user).isdigit() else pwd.getpwnam(str(user)).pw_uid
+            except Exception as exc:
+                log_warning(f"[{self.process_name}] не удалось найти user={user}: {exc}")
+                resolved_uid = None
+
+        if resolved_uid is None and resolved_gid is None and not limits:
+            return None
+
         def preexec():  # type: ignore[return-type]
-            if group and grp is not None:
+            try:
+                if resolved_gid is not None:
+                    os.setgid(resolved_gid)
+                if resolved_uid is not None:
+                    os.setuid(resolved_uid)
+                if resource is not None and limits:
+                    mem_mb = limits.get("memory_mb") or limits.get("max_memory_mb")
+                    if mem_mb:
+                        byte_limit = int(float(mem_mb) * 1024 * 1024)
+                        resource.setrlimit(resource.RLIMIT_AS, (byte_limit, byte_limit))
+                    cpu_seconds = limits.get("cpu_seconds")
+                    if cpu_seconds:
+                        cpu_limit = int(cpu_seconds)
+                        resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
+            except Exception as exc:
+                # В preexec мы уже находимся в дочернем процессе после fork.
+                # Логирование через logging здесь может повиснуть из-за блокировок,
+                # поэтому пишем напрямую в stderr и продолжаем без падения.
                 try:
-                    gid = int(group) if str(group).isdigit() else grp.getgrnam(str(group)).gr_gid
-                    os.setgid(gid)
-                except Exception as exc:
-                    log_warning(f"[{self.process_name}] не удалось применить group={group}: {exc}")
-            if user and pwd is not None:
-                try:
-                    uid = int(user) if str(user).isdigit() else pwd.getpwnam(str(user)).pw_uid
-                    os.setuid(uid)
-                except Exception as exc:
-                    log_warning(f"[{self.process_name}] не удалось применить user={user}: {exc}")
-            if resource is not None and limits:
-                mem_mb = limits.get("memory_mb") or limits.get("max_memory_mb")
-                if mem_mb:
-                    byte_limit = int(float(mem_mb) * 1024 * 1024)
-                    resource.setrlimit(resource.RLIMIT_AS, (byte_limit, byte_limit))
-                cpu_seconds = limits.get("cpu_seconds")
-                if cpu_seconds:
-                    cpu_limit = int(cpu_seconds)
-                    resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
+                    os.write(2, f"[{self.process_name}] preexec_fn пропущен: {exc}\\n".encode("utf-8", "ignore"))
+                except Exception:
+                    pass
 
         return preexec

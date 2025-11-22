@@ -17,7 +17,7 @@ supervisor:
   enabled: true
   log_directory: output/supervisor
   healthcheck:
-    enabled: true
+    enabled: false
     host: 127.0.0.1
     port: 8130
   watchdog:
@@ -53,6 +53,15 @@ supervisor:
     hang_timeout_seconds: 60
     hang_cpu_percent_threshold: 3
     restart_on_hang: true
+  processes:
+    - name: "second-task"   
+      enabled: true
+      command:
+        executable: "/bin/bash"
+        args: ["-lc", "echo hello && sleep 10"]
+      restart_policy:
+        mode: "never"
+
 
 dashboard:
   docker_stream:
