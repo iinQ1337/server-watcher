@@ -1,6 +1,6 @@
 # Monitoring Service & Dashboard
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://www.python.org/) [![Node](https://img.shields.io/badge/Node-18%2B-339933?logo=node.js)](https://nodejs.org/) [![Docker](https://img.shields.io/badge/Docker-CLI-blue?logo=docker)](https://www.docker.com/)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://www.python.org/) [![Node](https://img.shields.io/badge/Node-18%2B-339933?logo=node.js)](https://nodejs.org/)
 
 Python daemon that continuously checks APIs, web pages, servers, networks, databases, queues, Docker, sensitive paths, and writes JSON snapshots to `output/`. A Next.js dashboard reads the snapshots and renders live panels.
 
