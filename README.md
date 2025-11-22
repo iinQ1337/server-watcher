@@ -182,3 +182,7 @@ Panels: overview, Docker, databases, queues, supervisor, and settings. Uses rela
 - `utils/` — logger, config loader, notifier, file writers.
 - `output/` — generated reports and snapshots (git-ignored).
 - `admin-dashboard/` — Next.js dashboard consuming `output/`.
+
+## Coffee
+If this project saves you time or nerves, you can support it here:
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://www.buymeacoffee.com/iinQ1337)
