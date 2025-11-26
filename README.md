@@ -1,21 +1,54 @@
-# Monitoring Service & Dashboard
+# 🛡️ Monitoring Service & Dashboard
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://www.python.org/) [![Node](https://img.shields.io/badge/Node-18%2B-339933?logo=node.js)](https://nodejs.org/)
 
 Python daemon that continuously checks APIs, web pages, servers, networks, databases, queues, Docker, sensitive paths, and writes JSON snapshots to `output/`. A Next.js dashboard reads the snapshots and renders live panels.
 
-## Table of Contents
-- [Features](#features)
-- [Architecture](#architecture)
-- [Getting Started](#getting-started)
-- [Configuration](#configuration)
-- [Runtime Output](#runtime-output)
-- [Dashboard](#dashboard)
-- [Supervisor](#supervisor)
-- [Testing](#testing)
-- [Project Structure](#project-structure)
+## 📚 Table of Contents
+- [Admin Dashboard](#%EF%B8%8F-admin-panel)
+- [Features](#-features)
+- [Architecture](#-architecture)
+- [Getting Started](#-getting-started)
+- [Configuration](#%EF%B8%8F-configuration)
+- [Runtime Output](#-runtime-output)
+- [Dashboard](#-dashboard)
+- [Supervisor](#%E2%80%8D-supervisor)
+- [Project Structure](#-project-structure)
 
-## Features
+---
+
+## 🛠️ Admin Panel
+The monitoring service can run fully **without any dashboard** — all checks, streams, reports, logs, notifications, and the supervisor work independently and write JSON/TXT output to `output/`.
+
+However, if you want a **visual dashboard** with tables, charts, status panels, stream viewers, supervisor logs, Docker/DB overviews, and configuration UI, a complete Next.js admin panel is already available:
+
+👉 **Admin Dashboard Repository:**  
+https://github.com/iinQ1337/admin-dashboard
+
+It reads JSON snapshots from `output/` and provides real-time visualization for:
+- health checks  
+- Docker containers/nodes/events  
+- database metrics & backups  
+- queue reachability  
+- task manager stream  
+- supervisor processes  
+- overall system status  
+
+The dashboard is optional, but highly convenient for production monitoring setups.
+![Dashboard preview](https://github.com/iinQ1337/admin-dashboard/blob/main/screenshots/1.png) 
+
+<details>
+  <summary> 👉 Show preview 👈 </summary>
+  
+  ![Docker preview](https://github.com/iinQ1337/admin-dashboard/blob/main/screenshots/2.png)  
+  ![Databases preview](https://github.com/iinQ1337/admin-dashboard/blob/main/screenshots/3.png)  
+  ![Queues preview](https://github.com/iinQ1337/admin-dashboard/blob/main/screenshots/4.png)
+
+</details>
+
+---
+
+## ✨ Features
 - **Health Checks:** API endpoints, web pages, server resources, dependency versions (Python/Node), DNS/WHOIS, network (ports/TCP/SMTP/TLS), log analysis, sensitive paths, databases (MySQL/PostgreSQL), queues (Redis/RabbitMQ).
 
 - **Streams for UI:** Docker containers/nodes/events, database summary & backups, task-manager snapshot (CPU/mem/top processes), queue reachability.
@@ -26,7 +59,9 @@ Python daemon that continuously checks APIs, web pages, servers, networks, datab
 
 - **Reports:** Combined `report_<timestamp>.json` and per-site reports.
 
-## Checks in Detail
+---
+
+## 🔍 Checks
 - **API (`checker/api_checker.py`):** HTTP methods, headers/auth (Bearer), timeouts, JSON validation with schema keys, response preview, optional full-response logging and saving to file.
 
 - **Pages (`checker/page_checker.py`):** Status/redirect chains, title/meta snapshot, must_contain/must_not_contain, perf warnings (slow response), security hints (HSTS, HTTPS redirect, gzip), robots/sitemap probes.
@@ -46,7 +81,9 @@ Python daemon that continuously checks APIs, web pages, servers, networks, datab
 
 - **Queues (`checker/queue_checker.py`):** Redis (aioredis) PING/info/DB size/queue length; RabbitMQ (aio_pika) passive queue declare and stats.
 
-## Streams in Detail (Dashboard Data)
+---
+
+## 🔁 Streams (Dashboard Data)
 - **Docker Stream (`monitoring/docker_stream.py`):** Containers/nodes/events via Docker CLI, CPU/mem stats (with optional psutil enrich), summary counts, writes `output/docker_stream.json`.
 
 - **Database Stream (`monitoring/database_stream.py`):** Periodic `check_databases`, alerts/backups loading, optional auto-backup (mysqldump/pg_dump) with history, writes `output/database_stream.json`.
@@ -55,24 +92,32 @@ Python daemon that continuously checks APIs, web pages, servers, networks, datab
 
 - **Queue Stream (`monitoring/queue_stream.py`):** TCP reachability and Redis PING for configured queues/endpoints, writes `output/queue_stream.json`.
 
-## Notifications (Telegram/Discord)
+---
+
+## 📣 Notifications (Telegram/Discord)
 - Located in `utils/notifier.py`.
 - Message rendering with simple `{{placeholder}}` templates, common tags, retries.
 - Channel-level `notify_on` filtering per event type (e.g., api_failures, tls_expiry, server_alerts, system_error).
 - HTTP helpers with debug/warn/error logging; safe no-op when disabled.
 
-## Reports & Logging
+---
+
+## 📑 Reports & Logging
 - **Reports:** `output/report_<ts>.json` aggregates all enabled checks; per-site reports under `output/<hostname>/`. TXT reports optional via `output.text_format`.
 - **Logging:** `utils/logger.py` sets rotating file and console handlers, captures warnings and unhandled exceptions. Log format/level/file set in `config.yaml`.
 - **Per-module logs:** All check/stream modules use structured log messages for start/end/error stats; supervisor logs stdout/stderr to `_latest.json` (and `.log` when enabled).
 
-## Architecture
+---
+
+## 🧩 Architecture
 - **Daemon:** `main.py` orchestrates checks and writes reports to `output/`.
 - **Streams:** Background threads under `monitoring/` write dashboard JSON snapshots.
 - **Supervisor:** `monitoring/supervisor.py` manages external processes and logs.
 - **Dashboard:** Next.js app in `admin-dashboard/` consumes snapshots from `output/`.
 
-## Getting Started
+---
+
+## 🚀 Getting Started
 ```bash
 # Python env
 python3 -m venv .venv
@@ -83,13 +128,17 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Prerequisites
+---
+
+### 📦 Prerequisites
 - Python 3.10+
 - Docker CLI (for Docker stream)
 - `mysqldump` / `pg_dump` if DB auto-backups enabled
 - Node 18+ to run the dashboard (optional)
 
-## Configuration
+---
+
+## ⚙️ Configuration
 Main settings live in `config.yaml`.
 
 ### Logging & Output
@@ -105,34 +154,13 @@ supervisor:
   log_directory: output/supervisor
   healthcheck: { enabled: true, host: "127.0.0.1", port: 8130 }
   watchdog:    { enabled: true, check_interval_sec: 5, stale_threshold_sec: 45 }
-  command:                     # single process
+  command:
     executable: "python"
     args: ["app.py"]
     working_dir: "/path/to/app"
     env: { APP_ENV: "prod" }
-    user: "www-data"           # запуск под другим пользователем (POSIX)
-    resource_limits: { memory_mb: 512, cpu_seconds: 120 }  # жесткие rlimit
-    resource_monitoring:
-      enabled: true
-      sample_interval_sec: 2
-      max_memory_mb: 700
-      memory_leak_restart_mb: 128
-      max_cpu_percent: 90
-      network_check_host: "8.8.8.8"
-      network_check_timeout_sec: 2
-  restart_policy:
-    mode: "always"             # always | on-failure | never
-    restart_delay_seconds: 5
-    restart_on_exit_0: true
-    max_restarts_per_minute: 10
-    hang_timeout_seconds: 60
-    hang_cpu_percent_threshold: 3
-    restart_on_hang: true
-  processes:                   # optional list of additional processes
-    - name: "supervised-task"
-      enabled: true
-      command: { executable: "node", args: ["server.js"], working_dir: "/path/to/server" }
-      restart_policy: { mode: "always", restart_delay_seconds: 5 }
+    user: "www-data"
+    resource_limits: { memory_mb: 512, cpu_seconds: 120 }
 ```
 
 ### Streams & Checks
@@ -148,34 +176,36 @@ notifications:
   discord:  { enabled: false, webhook_url: "" }
 ```
 
-## Runtime Output
-- `output/report_<ts>.json` — combined results of all checks (+ `.txt` if enabled).
+---
+
+## 📤 Runtime Output
+- `output/report_<ts>.json` — combined results of all checks (+ .txt if enabled).
 - Streams: `task_manager_stream.json`, `docker_stream.json`, `database_stream.json`, `queue_stream.json`.
 - Backups: `output/db_backups/`, `output/database_backups_history.json`.
 - Supervisor: `output/supervisor/<name>/*_latest.json` (stdout/stderr snapshots; `.log` if `text_format: true`).
+  
+---
 
-## Dashboard
-Next.js app reading JSON snapshots from `output/`.
+## 📊 Dashboard
 ```bash
 cd admin-dashboard
 npm install
-npm run dev   # open http://localhost:3000
+npm run dev
 ```
-Panels: overview, Docker, databases, queues, supervisor, and settings. Uses relative path `../output` by default.
 
-## Supervisor
-- Lives in `monitoring/supervisor.py`, self-monitors state/heartbeats and writes restart reasons into `_latest.json`/`.log`.
-- Watchdog thread следит за самим супервизором и перезапускает поток при зависании/падении (crash recovery).
-- Health-check API (`/health` / `/supervisor`) настраивается через `supervisor.healthcheck` и отдаёт статус процессов, PID, ресурсы и счётчик рестартов.
-- Мониторинг ресурсов (CPU, память, сетевые подключения/доступ в интернет) + перезапуск при memory leak/превышении лимитов/idle-ханге.
-- Политики перезапуска: `always/on-failure/never`, `restart_on_exit_0`, защита от флаппинга, `hang_timeout_*`; есть запуск под разными пользователями и лимиты ресурсов (`resource_limits`).
-- psutil используется для метрик ресурса; при его отсутствии супервизор работает, но без детальных метрик/ограничений.
+---
 
-## Testing
-- See `TEST_PLAN.md` for detailed coverage per module (checks, streams, supervisor, notifications, error paths).
-- Integration tests require real or disposable resources (Docker, DBs, queues); DNS/SMTP/TLS can use public hosts.
+## 🧑‍💼 Supervisor
+- Located in `monitoring/supervisor.py`, self-monitors its own state/heartbeats and writes restart reasons into `_latest.json/.log`.
+- A watchdog thread monitors the supervisor itself and restarts the thread in case of hang/crash (crash recovery).
+- The health-check API (`/health`, `/supervisor`) is configured via `supervisor.healthcheck` and returns process status, PID, resources, and restart counters.
+- Resource monitoring (CPU, memory, network connections/internet availability) + automatic restart on memory leak, limit violations, or idle hang.
+- Restart policies: `always/on-failure/never`, `restart_on_exit_0`, anti-flapping protection, `hang_timeout_*`; supports running under different users and resource limits (`resource_limits`).
+- psutil is used for resource metrics; if missing, the supervisor still works but without detailed metrics/limitations.
 
-## Project Structure
+---
+
+## 📁 Project Structure
 - `main.py` — daemon entrypoint, monitoring loop, report writer.
 - `checker/` — individual check modules (API, pages, server, versions, DNS, network, logs, sensitive paths, DBs, queues).
 - `monitoring/` — background streams (Docker/DB/Task/Queue) and process supervisor.
@@ -183,7 +213,9 @@ Panels: overview, Docker, databases, queues, supervisor, and settings. Uses rela
 - `output/` — generated reports and snapshots (git-ignored).
 - `admin-dashboard/` — Next.js dashboard consuming `output/`.
 
-## Coffee
-If this project saves you time or nerves, you can support it here:
+---
 
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://www.buymeacoffee.com/iinQ1337)
+## ☕ Coffee
+If this project saves you time or nerves:
+
+https://www.buymeacoffee.com/iinQ1337
