@@ -218,4 +218,4 @@ npm run dev
 ## ☕ Coffee
 If this project saves you time or nerves:
 
-https://www.buymeacoffee.com/iinQ1337
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/yellow_img.png)](https://www.buymeacoffee.com/iinQ1337)
