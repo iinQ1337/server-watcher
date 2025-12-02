@@ -15,6 +15,7 @@ from checker.database_checker import check_databases
 from monitoring.db_alerts import load_alerts
 from monitoring.db_backups import load_backups, record_backup_runs
 from utils.logger import log_error, log_info, log_debug
+from monitoring.storage import MonitoringStorage
 
 DatabasePayload = Dict[str, Any]
 
@@ -41,6 +42,7 @@ class DatabaseStream(threading.Thread):
         *,
         interval_sec: float = 30.0,
         config: Optional[Dict[str, Any]] = None,
+        storage: Optional[MonitoringStorage] = None,
     ) -> None:
         super().__init__(name="DatabaseStream", daemon=True)
         cfg = config or {}
@@ -60,16 +62,21 @@ class DatabaseStream(threading.Thread):
         self.output_path = Path(output_dir) / "database_stream.json"
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self._stop_event = threading.Event()
+        self.storage = storage
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> Optional["DatabaseStream"]:
+    def from_config(
+        cls, config: Dict[str, Any], storage: Optional[MonitoringStorage] = None
+    ) -> Optional["DatabaseStream"]:
         dashboard_cfg = (config.get("dashboard") or {}).get("databases_stream") or {}
         if not dashboard_cfg.get("enabled", False):
             return None
 
         output_dir = Path((config.get("output") or {}).get("directory", "output"))
         interval = float(dashboard_cfg.get("interval_sec", 30))
-        return cls(output_dir=output_dir, interval_sec=interval, config=dashboard_cfg)
+        return cls(
+            output_dir=output_dir, interval_sec=interval, config=dashboard_cfg, storage=storage
+        )
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -84,7 +91,7 @@ class DatabaseStream(threading.Thread):
             try:
                 payload = self._build_payload()
                 log_debug(f"DatabaseStream payload: {payload}")
-                self._write_snapshot(payload)
+                self._persist_snapshot(payload)
             except Exception as exc:
                 log_error(f"DatabaseStream: ошибка формирования снимка: {exc}")
             finally:
@@ -256,3 +263,14 @@ class DatabaseStream(threading.Thread):
         tmp_path = self.output_path.with_suffix(".tmp")
         tmp_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp_path.replace(self.output_path)
+
+    def _persist_snapshot(self, snapshot: DatabasePayload) -> None:
+        if self.storage:
+            self.storage.store_snapshot(
+                category="database_stream",
+                source="DatabaseStream",
+                payload=snapshot,
+                json_path=self.output_path,
+            )
+            return
+        self._write_snapshot(snapshot)

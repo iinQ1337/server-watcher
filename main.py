@@ -18,6 +18,7 @@ from typing import Optional
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from utils.config_loader import load_config
 from utils.logger import (
@@ -49,11 +50,51 @@ from monitoring import (
     QueueStream,
     ProcessSupervisor,
 )
+from monitoring.storage import MonitoringStorage
 
 console = Console()
 
 
-async def run_all_checks(config: dict) -> dict:
+def _print_storage_overview(storage: MonitoringStorage) -> None:
+    details = storage.describe()
+    table = Table(
+        title="Хранилище мониторинга",
+        show_header=True,
+        header_style="bold cyan",
+        show_lines=False,
+    )
+    table.add_column("Слой", no_wrap=True)
+    table.add_column("Хост/путь")
+    table.add_column("Порт", no_wrap=True)
+    table.add_column("База", no_wrap=True)
+    table.add_column("Пользователь", no_wrap=True)
+    table.add_column("Пароль", no_wrap=True)
+    table.add_column("Активно", no_wrap=True)
+
+    hot = details.get("hot", {})
+    cold = details.get("cold", {})
+    table.add_row(
+        "hot (in-memory)",
+        hot.get("host", "-"),
+        hot.get("port", "-"),
+        hot.get("name", "-"),
+        hot.get("user", "-"),
+        hot.get("password", "-"),
+        hot.get("enabled", "-"),
+    )
+    table.add_row(
+        "cold (on-disk)",
+        cold.get("host", "-"),
+        cold.get("port", "-"),
+        cold.get("name", "-"),
+        cold.get("user", "-"),
+        cold.get("password", "-"),
+        cold.get("enabled", "-"),
+    )
+    console.print(table)
+
+
+async def run_all_checks(config: dict, storage: Optional[MonitoringStorage] = None) -> dict:
     """
     @brief Выполняет все проверки мониторинга
     @param config Словарь с конфигурацией
@@ -264,10 +305,21 @@ async def run_all_checks(config: dict) -> dict:
                 results["checks"]["sensitive_paths"] = {"error": str(e)}
             progress.remove_task(task)
 
+    if storage:
+        output_dir = Path(config.get("output", {}).get("directory", "output"))
+        storage.store_snapshot(
+            category="checks",
+            source="monitoring_loop",
+            payload=results,
+            json_path=output_dir / "latest_checks.json",
+        )
+
     return results
 
 
-async def save_reports(config: dict, results: dict):
+async def save_reports(
+    config: dict, results: dict, storage: Optional[MonitoringStorage] = None
+) -> None:
     """
     Сохраняет JSON и текстовые отчеты
     """
@@ -305,12 +357,19 @@ async def save_reports(config: dict, results: dict):
             )
 
         log_info("Отчеты успешно сохранены")
+        if storage:
+            storage.store_snapshot(
+                category="reports",
+                source="save_reports",
+                payload=results,
+                json_path=output_dir / "report_latest.json",
+            )
     except Exception as e:
         log_error("Ошибка сохранения отчетов", exc=e)
         console.print(f"[bold red]Ошибка сохранения:[/bold red] {e}")
 
 
-async def monitoring_loop(config: dict):
+async def monitoring_loop(config: dict, storage: Optional[MonitoringStorage] = None):
     """
     Бесконечный цикл мониторинга согласно polling.interval_sec
     """
@@ -341,8 +400,8 @@ async def monitoring_loop(config: dict):
         common_tags = (notifications_cfg.get("common", {}) or {}).get("tags", []) or []
 
         try:
-            results = await run_all_checks(config)
-            await save_reports(config, results)
+            results = await run_all_checks(config, storage=storage)
+            await save_reports(config, results, storage=storage)
 
             # === УВЕДОМЛЕНИЯ ПО РЕЗУЛЬТАТАМ ===
 
@@ -561,6 +620,7 @@ async def main():
     console.print("[bold green]Запуск модуля мониторинга[/bold green]\n")
 
     config: dict
+    storage: Optional[MonitoringStorage] = None
     try:
         config = load_config()
         setup_logger(config.get("logging", {}))
@@ -572,10 +632,23 @@ async def main():
         )
         return 1
 
-    task_stream: Optional[TaskManagerStream] = TaskManagerStream.from_config(config)
-    db_stream: Optional[DatabaseStream] = DatabaseStream.from_config(config)
-    queue_stream: Optional[QueueStream] = QueueStream.from_config(config)
-    docker_stream: Optional[DockerStream] = DockerStream.from_config(config)
+    output_dir = Path((config.get("output") or {}).get("directory", "output"))
+    storage = MonitoringStorage.from_config(config, base_dir=output_dir)
+    storage.start()
+    _print_storage_overview(storage)
+
+    task_stream: Optional[TaskManagerStream] = TaskManagerStream.from_config(
+        config, storage=storage
+    )
+    db_stream: Optional[DatabaseStream] = DatabaseStream.from_config(
+        config, storage=storage
+    )
+    queue_stream: Optional[QueueStream] = QueueStream.from_config(
+        config, storage=storage
+    )
+    docker_stream: Optional[DockerStream] = DockerStream.from_config(
+        config, storage=storage
+    )
     supervisor_threads = ProcessSupervisor.from_config(config)
 
     active_streams = [
@@ -594,7 +667,7 @@ async def main():
         stream.start()
 
     try:
-        await monitoring_loop(config)
+        await monitoring_loop(config, storage=storage)
     finally:
         for stream in active_streams:
             try:
@@ -604,6 +677,8 @@ async def main():
                 pass
         for stream in active_streams:
             stream.join(timeout=5)
+        if storage:
+            storage.stop()
 
     return 0
 

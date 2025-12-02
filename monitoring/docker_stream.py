@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover - psutil обязательна толь
     psutil = None  # type: ignore
 
 from utils.logger import log_error, log_info, log_debug
+from monitoring.storage import MonitoringStorage
 
 DockerPayload = Dict[str, Any]
 
@@ -45,6 +46,7 @@ class DockerStream(threading.Thread):
         *,
         interval_sec: float = 20.0,
         config: Optional[Dict[str, Any]] = None,
+        storage: Optional[MonitoringStorage] = None,
     ) -> None:
         super().__init__(name="DockerStream", daemon=True)
         cfg = config or {}
@@ -60,16 +62,21 @@ class DockerStream(threading.Thread):
         self._stop_event = threading.Event()
         # временная метка, с которой собираем docker events
         self._events_since = datetime.now(tz=timezone.utc) - timedelta(seconds=300)
+        self.storage = storage
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> Optional["DockerStream"]:
+    def from_config(
+        cls, config: Dict[str, Any], storage: Optional[MonitoringStorage] = None
+    ) -> Optional["DockerStream"]:
         dashboard_cfg = (config.get("dashboard") or {}).get("docker_stream") or {}
         if not dashboard_cfg.get("enabled", False):
             return None
 
         output_dir = Path((config.get("output") or {}).get("directory", "output"))
         interval = float(dashboard_cfg.get("interval_sec", 20))
-        return cls(output_dir=output_dir, interval_sec=interval, config=dashboard_cfg)
+        return cls(
+            output_dir=output_dir, interval_sec=interval, config=dashboard_cfg, storage=storage
+        )
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -83,7 +90,7 @@ class DockerStream(threading.Thread):
             try:
                 payload = self._build_payload()
                 log_debug(f"DockerStream payload: {payload}")
-                self._write_snapshot(payload)
+                self._persist_snapshot(payload)
             except Exception as exc:
                 log_error(f"DockerStream: ошибка формирования снимка: {exc}")
             finally:
@@ -541,3 +548,14 @@ class DockerStream(threading.Thread):
         tmp_path = self.output_path.with_suffix(".tmp")
         tmp_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp_path.replace(self.output_path)
+
+    def _persist_snapshot(self, snapshot: DockerPayload) -> None:
+        if self.storage:
+            self.storage.store_snapshot(
+                category="docker_stream",
+                source="DockerStream",
+                payload=snapshot,
+                json_path=self.output_path,
+            )
+            return
+        self._write_snapshot(snapshot)

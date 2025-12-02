@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - psutil обязателен для п�
     psutil = None  # type: ignore
 
 from utils.logger import log_error, log_info
+from monitoring.storage import MonitoringStorage
 
 MetricHistory = Deque[Dict[str, Any]]
 
@@ -43,6 +44,7 @@ class TaskManagerStream(threading.Thread):
         interval_sec: float = 2.0,
         history_points: int = 90,
         top_processes: int = 8,
+        storage: Optional[MonitoringStorage] = None,
     ) -> None:
         super().__init__(name="TaskManagerStream", daemon=True)
         self.interval = max(0.5, float(interval_sec))
@@ -53,9 +55,12 @@ class TaskManagerStream(threading.Thread):
         self._stop_event = threading.Event()
         self._cpu_history: MetricHistory = deque(maxlen=self.history_points)
         self._mem_history: MetricHistory = deque(maxlen=self.history_points)
+        self.storage = storage
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> Optional["TaskManagerStream"]:
+    def from_config(
+        cls, config: Dict[str, Any], storage: Optional[MonitoringStorage] = None
+    ) -> Optional["TaskManagerStream"]:
         dashboard_cfg = (config.get("dashboard") or {}).get("task_manager") or {}
         enabled = dashboard_cfg.get("enabled", True)
         if not enabled:
@@ -70,6 +75,7 @@ class TaskManagerStream(threading.Thread):
             interval_sec=interval,
             history_points=history_points,
             top_processes=top_processes,
+            storage=storage,
         )
 
     def stop(self) -> None:
@@ -95,7 +101,7 @@ class TaskManagerStream(threading.Thread):
             try:
                 snapshot = self._collect_snapshot()
                 if snapshot:
-                    self._write_snapshot(snapshot)
+                    self._persist_snapshot(snapshot)
             except Exception as exc:  # pragma: no cover - защитимся от любых сбоев
                 log_error(f"TaskManagerStream: ошибка сбора метрик: {exc}")
             finally:
@@ -183,3 +189,14 @@ class TaskManagerStream(threading.Thread):
         tmp_path = self.output_path.with_suffix(".tmp")
         tmp_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp_path.replace(self.output_path)
+
+    def _persist_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        if self.storage:
+            self.storage.store_snapshot(
+                category="task_manager_stream",
+                source="TaskManagerStream",
+                payload=snapshot,
+                json_path=self.output_path,
+            )
+            return
+        self._write_snapshot(snapshot)

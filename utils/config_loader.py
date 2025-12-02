@@ -101,6 +101,22 @@ def get_default_config() -> Dict[str, Any]:
             'json_format': True,
             'text_format': True
         },
+        'storage': {
+            'hot': {
+                'enabled': True,
+                'max_age_minutes': 1440,
+                'max_rows_per_table': 100000,
+                'json_flush_interval_sec': 15,
+            },
+            'cold': {
+                'enabled': True,
+                'flush_interval_sec': 60,
+                'file_path': 'output/db/history.sqlite',
+                'file_rotation': 'daily',
+                'compress_archives': False,
+                'max_size_mb': 256,
+            },
+        },
         'dashboard': {
             'site_history': {
                 'files_per_site': 5,

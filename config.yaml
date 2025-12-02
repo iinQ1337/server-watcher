@@ -9,8 +9,21 @@ logging:
 
 output:
   directory: output
-  json_format: true
+  json_format: false
   text_format: false
+
+storage:
+  hot:
+    enabled: true
+    max_age_minutes: 1440        # сколько держать в памяти
+    max_rows_per_table: 100000   # ограничение по размеру
+    json_flush_interval_sec: 15  # частота обновления JSON снимков из горячего кэша
+  cold:
+    enabled: true
+    flush_interval_sec: 40       # как часто сбрасывать на диск
+    file_path: output/db/history.sqlite
+    file_rotation: daily         # daily / weekly / none / size_based
+    compress_archives: false
 
 # === Mini Supervisor (optional) ===
 supervisor:
@@ -66,12 +79,12 @@ supervisor:
 
 dashboard:
   docker_stream:
-    enabled: true
+    enabled: false
     interval_sec: 20
     use_cli: true
     default_node: null
   databases_stream:
-    enabled: true
+    enabled: false
     interval_sec: 60
     alerts_enabled: true
     backups_enabled: true
